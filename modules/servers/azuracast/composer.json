@@ -1,0 +1,11 @@
+{
+  "name": "local/whmcs-azuracast-v2",
+  "description": "WHMCS server module AzuraCast V2",
+  "type": "project",
+  "require": {},
+  "config": {
+    "platform": {
+      "php": "8.3.0"
+    }
+  }
+}

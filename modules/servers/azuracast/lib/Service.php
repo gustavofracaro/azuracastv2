@@ -20,22 +20,22 @@ final class Service
         $this->api = new ApiClient($params);
         $this->serviceId = (int) ($params['serviceid'] ?? 0);
         $this->productId = (int) ($params['pid'] ?? 0);
-        $this->stationName = $this->resolveStationName(); // nunca null
+        $this->stationName = $this->resolveStationName();
     }
 
     public function createAccount(): string
     {
         try {
             $stationId = $this->getStationId();
-            if ($stationId !== null && $stationId !== '') {
+            if (!empty($stationId)) {
                 return 'Serviço já possui station_id salvo: ' . $stationId;
             }
 
             $payload = $this->basePayload();
-            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption18'] ?? ''));
+            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption16'] ?? ''));
             $payload = $this->mergeCustomFields($payload);
 
-            $result = $this->api->request('POST', (string) ($this->params['configoption5'] ?? '/api/admin/stations'), $payload);
+            $result = $this->api->request('POST', (string) ($this->params['configoption3'] ?? '/api/admin/stations'), $payload);
             $this->assertSuccess($result, 'Falha ao criar estação.');
 
             $decoded = json_decode($result['body'], true);
@@ -53,19 +53,19 @@ final class Service
 
     public function suspendAccount(): string
     {
-        return $this->stationAction('PUT', (string) ($this->params['configoption8'] ?? ''), (string) ($this->params['configoption19'] ?? '{"is_enabled":false}'));
+        return $this->stationAction('PUT', (string) ($this->params['configoption6'] ?? ''), (string) ($this->params['configoption17'] ?? '{"is_enabled":false}'));
     }
 
     public function unsuspendAccount(): string
     {
-        return $this->stationAction('PUT', (string) ($this->params['configoption9'] ?? ''), (string) ($this->params['configoption20'] ?? '{"is_enabled":true}'));
+        return $this->stationAction('PUT', (string) ($this->params['configoption7'] ?? ''), (string) ($this->params['configoption18'] ?? '{"is_enabled":true}'));
     }
 
     public function terminateAccount(): string
     {
         try {
             $id = $this->requireStationId();
-            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption7'] ?? ''), $id);
+            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption5'] ?? ''), $id);
             $result = $this->api->request('DELETE', $endpoint);
             $this->assertSuccess($result, 'Falha ao remover estação.');
             $this->saveStationId('');
@@ -79,17 +79,17 @@ final class Service
     {
         try {
             $id = $this->requireStationId();
-            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption6'] ?? ''), $id);
+            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption4'] ?? ''), $id);
             $payload = [
                 'frontend_config' => [
-                    'port' => (int) ($this->params['configoption15'] ?? 8000),
-                    'max_listeners' => (int) ($this->params['configoption17'] ?? 0),
+                    'port' => (int) ($this->params['configoption13'] ?? 8000),
+                    'max_listeners' => (int) ($this->params['configoption15'] ?? 0),
                 ],
                 'backend_config' => [
-                    'port' => (int) ($this->params['configoption16'] ?? 8005),
+                    'port' => (int) ($this->params['configoption14'] ?? 8005),
                 ],
             ];
-            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption21'] ?? ''));
+            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption19'] ?? ''));
             $payload = $this->mergeCustomFields($payload);
 
             $result = $this->api->request('PUT', $endpoint, $payload);
@@ -158,10 +158,7 @@ final class Service
     private function resolveStationName(): string
     {
         $customFields = $this->params['customfields'] ?? [];
-        $raw = '';
-        if (is_array($customFields) && array_key_exists('station_name', $customFields)) {
-            $raw = (string) ($customFields['station_name'] ?? '');
-        }
+        $raw = is_array($customFields) ? (string) ($customFields['station_name'] ?? '') : '';
         $raw = trim($raw);
         if ($raw !== '') {
             return $raw;
@@ -181,17 +178,17 @@ final class Service
             'name' => $this->stationName,
             'description' => 'Provisionado via WHMCS. Service ID: ' . $this->serviceId,
             'short_name' => $this->buildShortName(),
-            'frontend_type' => (string) ($this->params['configoption13'] ?? 'icecast'),
-            'backend_type' => (string) ($this->params['configoption14'] ?? 'liquidsoap'),
+            'frontend_type' => (string) ($this->params['configoption11'] ?? 'icecast'),
+            'backend_type' => (string) ($this->params['configoption12'] ?? 'liquidsoap'),
             'frontend_config' => [
-                'port' => (int) ($this->params['configoption15'] ?? 8000),
-                'max_listeners' => (int) ($this->params['configoption17'] ?? 0),
+                'port' => (int) ($this->params['configoption13'] ?? 8000),
+                'max_listeners' => (int) ($this->params['configoption15'] ?? 0),
             ],
             'backend_config' => [
-                'port' => (int) ($this->params['configoption16'] ?? 8005),
+                'port' => (int) ($this->params['configoption14'] ?? 8005),
             ],
-            'timezone' => (string) ($this->params['configoption11'] ?? 'America/Sao_Paulo'),
-            'default_language' => (string) ($this->params['configoption12'] ?? 'pt_BR'),
+            'timezone' => (string) ($this->params['configoption9'] ?? 'America/Sao_Paulo'),
+            'default_language' => (string) ($this->params['configoption10'] ?? 'pt_BR'),
             'enable_public_page' => true,
             'enable_streamers' => true,
         ];
@@ -199,7 +196,7 @@ final class Service
 
     private function buildShortName(): string
     {
-        $prefix = trim((string) ($this->params['configoption10'] ?? 'radio-'));
+        $prefix = trim((string) ($this->params['configoption8'] ?? 'radio-'));
         $candidate = $prefix . $this->serviceId;
         $customFields = $this->params['customfields'] ?? [];
         if (is_array($customFields) && !empty($customFields['azuracast_short_name'])) {
@@ -214,16 +211,19 @@ final class Service
         if (trim($json) === '') {
             return [];
         }
+
         $replaced = strtr($json, [
             '{{service_id}}' => (string) $this->serviceId,
             '{{domain}}' => (string) ($this->params['domain'] ?? ''),
             '{{username}}' => (string) ($this->params['username'] ?? ''),
             '{{station_short_name}}' => $this->buildShortName(),
         ]);
+
         $decoded = json_decode($replaced, true);
         if (!is_array($decoded)) {
             throw new RuntimeException('JSON inválido em payload template.');
         }
+
         return $decoded;
     }
 

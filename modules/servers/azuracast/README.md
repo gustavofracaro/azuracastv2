@@ -5,22 +5,28 @@ Versão atualizada do módulo de servidor WHMCS para AzuraCast, com arquitetura 
 ## Estrutura do módulo
 
 - `azuracast.php` (entrypoint WHMCS)
-- `lib/Config.php` (metadados e opções)
+- `lib/Config.php` (metadados e opções do produto)
 - `lib/ApiClient.php` (cliente HTTP AzuraCast)
 - `lib/Service.php` (regras de provisionamento/gestão)
 - `vendor/autoload.php` (autoload local)
 - `composer.json`
 
+## Regras de conexão (WHMCS)
+
+Nesta versão, os campos `API Base URL` e `API Key` **não aparecem** nas configurações do produto.
+A conexão usa os dados do servidor WHMCS cadastrado:
+
+- Hostname/IP do servidor
+- Porta do servidor
+- Access Hash (ou senha como fallback)
+
 ## Correções de upgrade aplicadas
 
 - Nome do módulo mantido como **AzuraCast V2**.
 - Corrigida a falha de tipagem de nome da estação com normalização segura no construtor do serviço.
-- Suporte completo para credenciais no padrão WHMCS:
-  - API Key por opção do módulo
-  - fallback para `serveraccesshash`
-  - fallback para `serverpassword`
-- Suporte a URL base por opção ou por Host/IP do servidor WHMCS.
-- Suporte a redirecionamento HTTP (301/302/307/308) com `Follow Redirects` e `Max Redirects`.
+- Suporte a fallback de protocolo HTTP/HTTPS quando necessário.
+- Suporte a redirecionamento HTTP (301/302/307/308) com preservação de método (`CURLOPT_POSTREDIR`).
+- Timeout de conexão dedicado (`CURLOPT_CONNECTTIMEOUT`) para evitar bloqueios longos.
 
 ## Instalação
 
@@ -41,9 +47,3 @@ Versão atualizada do módulo de servidor WHMCS para AzuraCast, com arquitetura 
 
 - PHP 8.3, 8.4, 8.5
 - WHMCS (módulo de servidor API v1.1)
-
-
-## Fallback de conexão (bugfix)
-
-Quando `API Base URL` não é informada, o módulo tenta conectar usando Host/IP do servidor WHMCS com fallback automático de protocolo (HTTP/HTTPS).
-Também foi adicionado `CURLOPT_CONNECTTIMEOUT` para falhas de rede retornarem mais rápido em produção.

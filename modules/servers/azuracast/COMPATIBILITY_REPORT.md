@@ -1,48 +1,16 @@
-# Relatório de Varredura e Compatibilidade — AzuraCast V2 (Upgrade)
+# Relatório de Compatibilidade — AzuraCast V2
 
-Data da análise: 2026-03-03
+- Revisão focada na documentação de Provisioning Modules do WHMCS e APIs do AzuraCast.
+- Módulo usa entry points padrão (`CreateAccount`, `SuspendAccount`, `UnsuspendAccount`, `TerminateAccount`, `ChangePackage`, `TestConnection`).
+- Retornos seguem padrão WHMCS (`success` ou mensagem de erro; `TestConnection` com `success/error`).
 
-## Varredura do repositório
+## Correções críticas aplicadas
 
-Arquivos atuais do módulo:
+1. Remoção de opções técnicas do produto (SSL/Endpoint/Payload/Timeout/Redirect).
+2. Uso exclusivo de configuração do servidor WHMCS para conexão.
+3. Fallback robusto de servidor quando `$params` vier incompleto:
+   - `serverid` -> `tblhosting.server` -> `tblproducts.servergroup/tblservergroupsrel` -> `tblservers`.
+4. Fallback robusto de credencial:
+   - `accesshash`/`serveraccesshash` -> senha -> usuário.
 
-- `modules/servers/azuracast/azuracast.php`
-- `modules/servers/azuracast/lib/Config.php`
-- `modules/servers/azuracast/lib/ApiClient.php`
-- `modules/servers/azuracast/lib/Service.php`
-- `modules/servers/azuracast/vendor/autoload.php`
-- `modules/servers/azuracast/composer.json`
-- `modules/servers/azuracast/README.md`
-
-## Correções aplicadas no upgrade
-
-1. Reestruturação para arquitetura em camadas (`Config`, `ApiClient`, `Service`).
-2. Correção de falha de tipagem de nome da estação (`stationName` sempre string não nula).
-3. Uso exclusivo de credenciais/host do servidor WHMCS (sem campos de URL/API Key no produto).
-4. Correção de falhas de conexão com fallback HTTP/HTTPS e `CURLOPT_CONNECTTIMEOUT`.
-5. Correção de `HTTP 308 Permanent Redirect` no Create com suporte a follow redirect + `CURLOPT_POSTREDIR`.
-
-## Compatibilidade técnica
-
-- PHP 8.3 / 8.4 / 8.5: compatível.
-- WHMCS server module API v1.1: compatível.
-- Sem dependências Composer externas obrigatórias.
-
-## Observação operacional
-
-Mesmo com opcache desabilitado, recomenda-se deploy limpo da pasta `modules/servers/azuracast` para evitar arquivos legados.
-
-
-- Fallback de API Key ampliado: `serveraccesshash` -> `serverpassword` -> `password` -> `serverusername` -> `username`.
-
-
-## Correção adicional: host/IP ausente no params
-
-- Corrigido erro `Configuração ausente: Nome do host/IP do servidor` com fallback de leitura de host por múltiplas chaves WHMCS.
-- Suporte a endpoint absoluto para bypass de resolução de host quando necessário.
-
-- Corrigido erro fatal `Call to undefined method ...::normalizeToken()` com implementação da normalização de Access Hash/API Key.
-
-- Correção crítica: fallback para leitura de host/IP e credenciais direto de `tblservers` quando `$params` vier incompleto.
-
-- Fallback adicional de resolução do servidor: `serverid` -> `tblhosting.server` -> `tblproducts.servergroup`/`tblservergroupsrel`.
+Resultado: elimina a recorrência do erro de host/IP ausente em serviços com vinculação indireta de servidor.

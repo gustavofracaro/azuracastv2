@@ -10,6 +10,9 @@ use WHMCS\Database\Capsule;
 
 final class Service
 {
+    private const ENDPOINT_CREATE = '/api/admin/stations';
+    private const ENDPOINT_STATION = '/api/admin/station/{station_id}';
+
     private ApiClient $api;
     private int $serviceId;
     private int $productId;
@@ -26,16 +29,14 @@ final class Service
     public function createAccount(): string
     {
         try {
-            $stationId = $this->getStationId();
-            if (!empty($stationId)) {
-                return 'Serviço já possui station_id salvo: ' . $stationId;
+            if ($this->getStationId()) {
+                return 'Serviço já possui station_id salvo.';
             }
 
             $payload = $this->basePayload();
-            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption16'] ?? ''));
             $payload = $this->mergeCustomFields($payload);
 
-            $result = $this->api->request('POST', (string) ($this->params['configoption3'] ?? '/api/admin/stations'), $payload);
+            $result = $this->api->request('POST', self::ENDPOINT_CREATE, $payload);
             $this->assertSuccess($result, 'Falha ao criar estação.');
 
             $decoded = json_decode($result['body'], true);
@@ -53,19 +54,18 @@ final class Service
 
     public function suspendAccount(): string
     {
-        return $this->stationAction('PUT', (string) ($this->params['configoption6'] ?? ''), (string) ($this->params['configoption17'] ?? '{"is_enabled":false}'));
+        return $this->stationAction('PUT', ['is_enabled' => false]);
     }
 
     public function unsuspendAccount(): string
     {
-        return $this->stationAction('PUT', (string) ($this->params['configoption7'] ?? ''), (string) ($this->params['configoption18'] ?? '{"is_enabled":true}'));
+        return $this->stationAction('PUT', ['is_enabled' => true]);
     }
 
     public function terminateAccount(): string
     {
         try {
-            $id = $this->requireStationId();
-            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption5'] ?? ''), $id);
+            $endpoint = $this->resolveStationEndpoint(self::ENDPOINT_STATION, $this->requireStationId());
             $result = $this->api->request('DELETE', $endpoint);
             $this->assertSuccess($result, 'Falha ao remover estação.');
             $this->saveStationId('');
@@ -78,19 +78,11 @@ final class Service
     public function changePackage(): string
     {
         try {
-            $id = $this->requireStationId();
-            $endpoint = $this->resolveStationEndpoint((string) ($this->params['configoption4'] ?? ''), $id);
-            $payload = [
-                'frontend_config' => [
-                    'port' => (int) ($this->params['configoption13'] ?? 8000),
-                    'max_listeners' => (int) ($this->params['configoption15'] ?? 0),
-                ],
-                'backend_config' => [
-                    'port' => (int) ($this->params['configoption14'] ?? 8005),
-                ],
-            ];
-            $payload = $this->mergeTemplate($payload, (string) ($this->params['configoption19'] ?? ''));
-            $payload = $this->mergeCustomFields($payload);
+            $endpoint = $this->resolveStationEndpoint(self::ENDPOINT_STATION, $this->requireStationId());
+            $payload = $this->mergeCustomFields([
+                'frontend_config' => ['port' => 8000, 'max_listeners' => 0],
+                'backend_config' => ['port' => 8005],
+            ]);
 
             $result = $this->api->request('PUT', $endpoint, $payload);
             $this->assertSuccess($result, 'Falha ao atualizar pacote.');
@@ -129,24 +121,24 @@ final class Service
             if (!is_array($stations)) {
                 return 'Resposta inválida ao listar estações.';
             }
+
             foreach ($stations as $station) {
                 if (is_array($station) && ($station['short_name'] ?? '') === $short && !empty($station['id'])) {
                     $this->saveStationId((string) $station['id']);
                     return 'success';
                 }
             }
+
             return 'Estação não encontrada para short_name: ' . $short;
         } catch (Throwable $e) {
             return 'Erro na sincronização: ' . $e->getMessage();
         }
     }
 
-    private function stationAction(string $method, string $endpointTemplate, string $payloadJson): string
+    private function stationAction(string $method, array $payload): string
     {
         try {
-            $id = $this->requireStationId();
-            $endpoint = $this->resolveStationEndpoint($endpointTemplate, $id);
-            $payload = $this->parseTemplateJson($payloadJson);
+            $endpoint = $this->resolveStationEndpoint(self::ENDPOINT_STATION, $this->requireStationId());
             $result = $this->api->request($method, $endpoint, $payload);
             $this->assertSuccess($result, 'Falha na ação da estação.');
             return 'success';
@@ -158,18 +150,13 @@ final class Service
     private function resolveStationName(): string
     {
         $customFields = $this->params['customfields'] ?? [];
-        $raw = is_array($customFields) ? (string) ($customFields['station_name'] ?? '') : '';
-        $raw = trim($raw);
-        if ($raw !== '') {
-            return $raw;
+        $name = is_array($customFields) ? trim((string) ($customFields['station_name'] ?? '')) : '';
+        if ($name !== '') {
+            return $name;
         }
 
         $domain = trim((string) ($this->params['domain'] ?? ''));
-        if ($domain !== '') {
-            return 'Rádio ' . $domain;
-        }
-
-        return 'Rádio #' . $this->serviceId;
+        return $domain !== '' ? 'Rádio ' . $domain : 'Rádio #' . $this->serviceId;
     }
 
     private function basePayload(): array
@@ -178,17 +165,12 @@ final class Service
             'name' => $this->stationName,
             'description' => 'Provisionado via WHMCS. Service ID: ' . $this->serviceId,
             'short_name' => $this->buildShortName(),
-            'frontend_type' => (string) ($this->params['configoption11'] ?? 'icecast'),
-            'backend_type' => (string) ($this->params['configoption12'] ?? 'liquidsoap'),
-            'frontend_config' => [
-                'port' => (int) ($this->params['configoption13'] ?? 8000),
-                'max_listeners' => (int) ($this->params['configoption15'] ?? 0),
-            ],
-            'backend_config' => [
-                'port' => (int) ($this->params['configoption14'] ?? 8005),
-            ],
-            'timezone' => (string) ($this->params['configoption9'] ?? 'America/Sao_Paulo'),
-            'default_language' => (string) ($this->params['configoption10'] ?? 'pt_BR'),
+            'frontend_type' => 'icecast',
+            'backend_type' => 'liquidsoap',
+            'frontend_config' => ['port' => 8000, 'max_listeners' => 0],
+            'backend_config' => ['port' => 8005],
+            'timezone' => 'America/Sao_Paulo',
+            'default_language' => 'pt_BR',
             'enable_public_page' => true,
             'enable_streamers' => true,
         ];
@@ -196,41 +178,13 @@ final class Service
 
     private function buildShortName(): string
     {
-        $prefix = trim((string) ($this->params['configoption8'] ?? 'radio-'));
-        $candidate = $prefix . $this->serviceId;
         $customFields = $this->params['customfields'] ?? [];
-        if (is_array($customFields) && !empty($customFields['azuracast_short_name'])) {
-            $candidate = (string) $customFields['azuracast_short_name'];
-        }
+        $candidate = is_array($customFields) && !empty($customFields['azuracast_short_name'])
+            ? (string) $customFields['azuracast_short_name']
+            : ('radio-' . $this->serviceId);
+
         $clean = preg_replace('/[^a-z0-9_\-]/', '', strtolower($candidate));
         return $clean ?: ('radio' . $this->serviceId);
-    }
-
-    private function parseTemplateJson(string $json): array
-    {
-        if (trim($json) === '') {
-            return [];
-        }
-
-        $replaced = strtr($json, [
-            '{{service_id}}' => (string) $this->serviceId,
-            '{{domain}}' => (string) ($this->params['domain'] ?? ''),
-            '{{username}}' => (string) ($this->params['username'] ?? ''),
-            '{{station_short_name}}' => $this->buildShortName(),
-        ]);
-
-        $decoded = json_decode($replaced, true);
-        if (!is_array($decoded)) {
-            throw new RuntimeException('JSON inválido em payload template.');
-        }
-
-        return $decoded;
-    }
-
-    private function mergeTemplate(array $base, string $template): array
-    {
-        $extra = $this->parseTemplateJson($template);
-        return $this->mergeRecursiveDistinct($base, $extra);
     }
 
     private function mergeCustomFields(array $payload): array
@@ -248,22 +202,13 @@ final class Service
         }
 
         if (!empty($customFields['azuracast_payload_json'])) {
-            $payload = $this->mergeTemplate($payload, (string) $customFields['azuracast_payload_json']);
+            $extra = json_decode((string) $customFields['azuracast_payload_json'], true);
+            if (is_array($extra)) {
+                $payload = array_replace_recursive($payload, $extra);
+            }
         }
 
         return $payload;
-    }
-
-    private function mergeRecursiveDistinct(array $base, array $override): array
-    {
-        foreach ($override as $key => $value) {
-            if (is_array($value) && isset($base[$key]) && is_array($base[$key])) {
-                $base[$key] = $this->mergeRecursiveDistinct($base[$key], $value);
-            } else {
-                $base[$key] = $value;
-            }
-        }
-        return $base;
     }
 
     private function castValue(mixed $value): mixed
@@ -288,11 +233,13 @@ final class Service
         if (!is_array($customFields)) {
             return null;
         }
+
         foreach (['station_id', 'Station ID', 'stationid', 'azuracast_station_id'] as $key) {
             if (!empty($customFields[$key])) {
                 return trim((string) $customFields[$key]);
             }
         }
+
         return null;
     }
 
@@ -302,14 +249,12 @@ final class Service
         if ($id === null || $id === '') {
             throw new RuntimeException('station_id não encontrado para este serviço.');
         }
+
         return $id;
     }
 
     private function resolveStationEndpoint(string $template, string $stationId): string
     {
-        if (trim($template) === '') {
-            throw new RuntimeException('Endpoint da ação não configurado.');
-        }
         return str_replace('{station_id}', rawurlencode($stationId), $template);
     }
 

@@ -9,6 +9,10 @@ use WHMCS\Database\Capsule;
 
 final class ApiClient
 {
+    private const TIMEOUT = 60;
+    private const CONNECT_TIMEOUT = 15;
+    private const MAX_REDIRECTS = 5;
+
     public function __construct(private array $params)
     {
     }
@@ -17,24 +21,18 @@ final class ApiClient
     {
         $apiKey = $this->apiKey();
         if ($apiKey === '') {
-            throw new RuntimeException('Configuração ausente: API Key. Preencha Access Hash, Senha ou Usuário do servidor WHMCS.');
+            throw new RuntimeException('Configuração ausente: API Key/Access Hash do servidor WHMCS.');
         }
 
         $absoluteEndpoint = str_starts_with($endpoint, 'http://') || str_starts_with($endpoint, 'https://');
         $baseUrls = $absoluteEndpoint ? [''] : $this->baseUrlCandidates();
-
         if ($baseUrls === []) {
-            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor. Verifique o servidor atribuído ao produto no WHMCS.');
+            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor. Verifique o servidor no WHMCS.');
         }
-
-        $timeout = max(5, (int) ($this->params['configoption2'] ?? 60));
-        $verifySsl = !empty($this->params['configoption1']);
-        $followRedirects = !empty($this->params['configoption20']);
-        $maxRedirects = max(1, (int) ($this->params['configoption21'] ?? 5));
 
         $lastError = null;
         foreach ($baseUrls as $baseUrl) {
-            $result = $this->performRequest($baseUrl, $method, $endpoint, $payload, $apiKey, $timeout, $verifySsl, $followRedirects, $maxRedirects);
+            $result = $this->performRequest($baseUrl, $method, $endpoint, $payload, $apiKey);
             if ($result['curl_error'] === '') {
                 return ['http_code' => $result['http_code'], 'body' => $result['body']];
             }
@@ -79,20 +77,13 @@ final class ApiClient
     }
 
     /** @return array{http_code:int,body:string,curl_error:string} */
-    private function performRequest(
-        string $baseUrl,
-        string $method,
-        string $endpoint,
-        ?array $payload,
-        string $apiKey,
-        int $timeout,
-        bool $verifySsl,
-        bool $followRedirects,
-        int $maxRedirects
-    ): array {
+    private function performRequest(string $baseUrl, string $method, string $endpoint, ?array $payload, string $apiKey): array
+    {
         $url = (str_starts_with($endpoint, 'http://') || str_starts_with($endpoint, 'https://'))
             ? $endpoint
             : rtrim($baseUrl, '/') . '/' . ltrim($endpoint, '/');
+
+        $verifySsl = !str_starts_with($url, 'http://');
 
         $headers = ['Accept: application/json', 'X-API-Key: ' . $apiKey];
         $bodyToSend = null;
@@ -114,13 +105,13 @@ final class ApiClient
             CURLOPT_CUSTOMREQUEST => strtoupper($method),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => true,
-            CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_CONNECTTIMEOUT => min(15, $timeout),
+            CURLOPT_TIMEOUT => self::TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_SSL_VERIFYPEER => $verifySsl,
             CURLOPT_SSL_VERIFYHOST => $verifySsl ? 2 : 0,
-            CURLOPT_FOLLOWLOCATION => $followRedirects,
-            CURLOPT_MAXREDIRS => $maxRedirects,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => self::MAX_REDIRECTS,
             CURLOPT_POSTREDIR => CURL_REDIR_POST_ALL,
         ]);
 
@@ -137,6 +128,7 @@ final class ApiClient
             curl_close($ch);
             logModuleCall('azuracast', strtoupper($method) . ' ' . $endpoint, $payload, [
                 'base_url' => $baseUrl,
+                'url' => $url,
                 'http_code' => $httpCode,
                 'response' => false,
                 'curl_error' => $curlError,
@@ -145,26 +137,12 @@ final class ApiClient
             return ['http_code' => $httpCode, 'body' => '', 'curl_error' => $curlError];
         }
 
-        $rawHeaders = substr($raw, 0, $headerSize);
         $body = (string) substr($raw, $headerSize);
         curl_close($ch);
 
-        if (in_array($httpCode, [301, 302, 307, 308], true) && !$followRedirects) {
-            if ($maxRedirects <= 0) {
-                return ['http_code' => $httpCode, 'body' => $body, 'curl_error' => ''];
-            }
-
-            $location = $this->extractLocationHeader($rawHeaders);
-            if ($location !== '') {
-                $nextBaseUrl = $this->deriveBaseUrlFromLocation($location, $baseUrl);
-                if ($nextBaseUrl !== '') {
-                    return $this->performRequest($nextBaseUrl, $method, $endpoint, $payload, $apiKey, $timeout, $verifySsl, false, $maxRedirects - 1);
-                }
-            }
-        }
-
         logModuleCall('azuracast', strtoupper($method) . ' ' . $endpoint, $payload, [
             'base_url' => $baseUrl,
+            'url' => $url,
             'http_code' => $httpCode,
             'response' => $body,
             'curl_error' => $curlError,
@@ -185,8 +163,6 @@ final class ApiClient
             (string) ($this->params['serverip'] ?? ''),
             (string) ($this->params['ipaddress'] ?? ''),
             (string) ($server['ipaddress'] ?? ''),
-            (string) ($this->params['servername'] ?? ''),
-            (string) ($server['name'] ?? ''),
         ];
 
         $host = '';
@@ -233,29 +209,23 @@ final class ApiClient
             $serviceId = (int) ($this->params['serviceid'] ?? 0);
             if ($serviceId > 0) {
                 try {
-                    $hostingServerId = (int) (Capsule::table('tblhosting')->where('id', $serviceId)->value('server') ?? 0);
-                    if ($hostingServerId > 0) {
-                        $serverId = $hostingServerId;
-                    }
+                    $serverId = (int) (Capsule::table('tblhosting')->where('id', $serviceId)->value('server') ?? 0);
                 } catch (\Throwable) {
-                    // Ignora e segue para próximos fallbacks.
+                    $serverId = 0;
                 }
             }
         }
 
         if ($serverId <= 0) {
-            $productId = (int) ($this->params['pid'] ?? 0);
+            $productId = (int) (($this->params['pid'] ?? 0) ?: ($this->params['packageid'] ?? 0));
             if ($productId > 0) {
                 try {
                     $serverGroupId = (int) (Capsule::table('tblproducts')->where('id', $productId)->value('servergroup') ?? 0);
                     if ($serverGroupId > 0) {
-                        $groupServerId = (int) (Capsule::table('tblservergroupsrel')->where('groupid', $serverGroupId)->orderBy('serverid', 'asc')->value('serverid') ?? 0);
-                        if ($groupServerId > 0) {
-                            $serverId = $groupServerId;
-                        }
+                        $serverId = (int) (Capsule::table('tblservergroupsrel')->where('groupid', $serverGroupId)->orderBy('serverid', 'asc')->value('serverid') ?? 0);
                     }
                 } catch (\Throwable) {
-                    // Ignora e mantém comportamento defensivo.
+                    $serverId = 0;
                 }
             }
         }
@@ -273,7 +243,6 @@ final class ApiClient
             return [
                 'hostname' => (string) ($row->hostname ?? ''),
                 'ipaddress' => (string) ($row->ipaddress ?? ''),
-                'name' => (string) ($row->name ?? ''),
                 'username' => (string) ($row->username ?? ''),
                 'password' => (string) ($row->password ?? ''),
                 'accesshash' => (string) ($row->accesshash ?? ''),
@@ -288,11 +257,7 @@ final class ApiClient
     private function normalizeToken(string $candidate): string
     {
         $candidate = trim($candidate);
-        if ($candidate === '') {
-            return '';
-        }
-
-        return preg_replace('/\s+/', '', $candidate) ?? '';
+        return $candidate === '' ? '' : (preg_replace('/\s+/', '', $candidate) ?? '');
     }
 
     private function isConnectionError(string $error): bool
@@ -302,31 +267,5 @@ final class ApiClient
             || str_contains($error, 'could not resolve host')
             || str_contains($error, 'connection refused')
             || str_contains($error, 'timed out');
-    }
-
-    private function extractLocationHeader(string $headers): string
-    {
-        foreach (preg_split('/\r\n|\n|\r/', $headers) as $line) {
-            if (stripos($line, 'Location:') === 0) {
-                return trim(substr($line, 9));
-            }
-        }
-
-        return '';
-    }
-
-    private function deriveBaseUrlFromLocation(string $location, string $fallbackBase): string
-    {
-        if (str_starts_with($location, 'http://') || str_starts_with($location, 'https://')) {
-            $parts = parse_url($location);
-            if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
-                return '';
-            }
-
-            $port = isset($parts['port']) ? ':' . (int) $parts['port'] : '';
-            return $parts['scheme'] . '://' . $parts['host'] . $port;
-        }
-
-        return $fallbackBase;
     }
 }

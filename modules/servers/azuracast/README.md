@@ -103,3 +103,9 @@ Esses campos são convertidos automaticamente para boolean/número quando aplic�
 
 - PHP 8.3, 8.4 e 8.5
 - Sem dependências externas obrigatórias (vendor não é necessário para execução).
+
+
+## Erro HTTP 301 (Moved Permanently)
+
+Se a API responder 301/302, habilite **Follow Redirects** e ajuste **Max Redirects** nas opções do módulo.
+Também confirme se a URL final do AzuraCast usa HTTPS e se o Host/IP no servidor WHMCS aponta para o painel correto.

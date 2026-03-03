@@ -148,6 +148,16 @@ function azuracast_ConfigOptions(): array
             'Cols' => '80',
             'Description' => 'Payload JSON para upgrade/downgrade (merge com campos padrão)',
         ],
+        'Follow Redirects' => [
+            'Type' => 'yesno',
+            'Description' => 'Seguir redirecionamentos HTTP (301/302/307/308)',
+        ],
+        'Max Redirects' => [
+            'Type' => 'text',
+            'Size' => '3',
+            'Default' => '5',
+            'Description' => 'Máximo de redirecionamentos HTTP',
+        ],
     ];
 }
 
@@ -456,6 +466,8 @@ function azuracast_apiRequest(array $params, string $method, string $endpoint, ?
     $apiKey = azuracast_getApiKey($params);
     $verifySsl = !empty($params['configoption3']);
     $timeout = (int) ($params['configoption4'] ?? 60);
+    $followRedirects = !empty($params['configoption22']);
+    $maxRedirects = (int) ($params['configoption23'] ?? 5);
 
     if ($baseUrl === '' || $apiKey === '') {
         throw new RuntimeException('Configurações obrigatórias ausentes: URL do AzuraCast e API Key (API Key ou Hash de Acesso do servidor).');
@@ -490,6 +502,8 @@ function azuracast_apiRequest(array $params, string $method, string $endpoint, ?
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_SSL_VERIFYPEER => $verifySsl,
         CURLOPT_SSL_VERIFYHOST => $verifySsl ? 2 : 0,
+        CURLOPT_FOLLOWLOCATION => $followRedirects,
+        CURLOPT_MAXREDIRS => max(1, $maxRedirects),
     ]);
 
     $responseBody = curl_exec($ch);
@@ -566,7 +580,7 @@ function azuracast_getApiKey(array $params): string
 function azuracast_ensureSuccess(array $result, string $message): void
 {
     if (($result['http_code'] ?? 0) >= 300) {
-        throw new RuntimeException($message . ' HTTP ' . $result['http_code'] . ': ' . ($result['body'] ?? ''));
+        throw new RuntimeException($message . ' HTTP ' . $result['http_code'] . ': ' . ($result['body'] ?? '') . (($result['http_code'] >= 300 && $result['http_code'] < 400) ? ' (verifique URL base/HTTPS/redirecionamento)' : ''));
     }
 }
 

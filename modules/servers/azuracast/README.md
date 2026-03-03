@@ -41,3 +41,9 @@ Versão atualizada do módulo de servidor WHMCS para AzuraCast, com arquitetura 
 
 - PHP 8.3, 8.4, 8.5
 - WHMCS (módulo de servidor API v1.1)
+
+
+## Fallback de conexão (bugfix)
+
+Quando `API Base URL` não é informada, o módulo tenta conectar usando Host/IP do servidor WHMCS com fallback automático de protocolo (HTTP/HTTPS).
+Também foi adicionado `CURLOPT_CONNECTTIMEOUT` para falhas de rede retornarem mais rápido em produção.

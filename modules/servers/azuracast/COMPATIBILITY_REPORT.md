@@ -33,3 +33,10 @@ Arquivos atuais do módulo:
 
 Com opcache desabilitado, a nova estrutura reduz risco de manter código antigo em memória.
 Mesmo assim, recomenda-se deploy limpo da pasta `modules/servers/azuracast`.
+
+
+## Correção adicional do bug de conexão
+
+- Corrigido cenário de `Failed to connect ... port 80` com fallback automático de URL base quando `API Base URL` está vazia.
+- O cliente agora tenta mais de um candidato de URL (HTTP/HTTPS) em erro de conexão e registra a URL tentada em `logModuleCall`.
+- Incluído `CURLOPT_CONNECTTIMEOUT` para reduzir bloqueios longos de conexão.

@@ -19,9 +19,11 @@ final class ApiClient
             throw new RuntimeException('Configuração ausente: API Key. Preencha Access Hash, Senha ou Usuário do servidor WHMCS.');
         }
 
-        $baseUrls = $this->baseUrlCandidates();
+        $absoluteEndpoint = str_starts_with($endpoint, 'http://') || str_starts_with($endpoint, 'https://');
+
+        $baseUrls = $absoluteEndpoint ? [''] : $this->baseUrlCandidates();
         if ($baseUrls === []) {
-            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor.');
+            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor. Verifique o servidor WHMCS (Hostname/IP) ou use endpoint absoluto (https://...).');
         }
 
         $timeout = max(5, (int) ($this->params['configoption2'] ?? 60));
@@ -85,7 +87,9 @@ final class ApiClient
         bool $followRedirects,
         int $maxRedirects
     ): array {
-        $url = rtrim($baseUrl, '/') . '/' . ltrim($endpoint, '/');
+        $url = (str_starts_with($endpoint, 'http://') || str_starts_with($endpoint, 'https://'))
+            ? $endpoint
+            : rtrim($baseUrl, '/') . '/' . ltrim($endpoint, '/');
 
         $headers = ['Accept: application/json', 'X-API-Key: ' . $apiKey];
         $bodyToSend = null;
@@ -165,9 +169,29 @@ final class ApiClient
     /** @return list<string> */
     private function baseUrlCandidates(): array
     {
-        $host = trim((string) ($this->params['serverhostname'] ?? ''));
-        if ($host === '') {
-            $host = trim((string) ($this->params['serverip'] ?? ''));
+        $server = $this->params['server'] ?? [];
+        if (!is_array($server)) {
+            $server = [];
+        }
+
+        $hostCandidates = [
+            (string) ($this->params['serverhostname'] ?? ''),
+            (string) ($this->params['hostname'] ?? ''),
+            (string) ($server['hostname'] ?? ''),
+            (string) ($this->params['serverip'] ?? ''),
+            (string) ($this->params['ipaddress'] ?? ''),
+            (string) ($server['ipaddress'] ?? ''),
+            (string) ($this->params['servername'] ?? ''),
+            (string) ($server['name'] ?? ''),
+        ];
+
+        $host = '';
+        foreach ($hostCandidates as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate !== '') {
+                $host = $candidate;
+                break;
+            }
         }
 
         if ($host === '') {
@@ -178,8 +202,9 @@ final class ApiClient
             return [rtrim($host, '/')];
         }
 
-        $serverPort = trim((string) ($this->params['serverport'] ?? ''));
-        $secure = (string) ($this->params['serversecure'] ?? '') === 'on' || (string) ($this->params['serversecure'] ?? '') === '1';
+        $serverPort = trim((string) ($this->params['serverport'] ?? ($server['port'] ?? '')));
+        $secureRaw = (string) ($this->params['serversecure'] ?? ($server['secure'] ?? ''));
+        $secure = $secureRaw === 'on' || $secureRaw === '1' || strtolower($secureRaw) === 'true';
 
         $httpPort = $serverPort !== '' ? (int) $serverPort : 80;
         $httpsPort = $serverPort !== '' ? (int) $serverPort : 443;
@@ -190,17 +215,6 @@ final class ApiClient
         return $secure ? [$https, $http] : [$http, $https];
     }
 
-
-    private function normalizeToken(string $value): string
-    {
-        // Alguns Access Hashes podem vir com quebras de linha/espacos.
-        $value = trim($value);
-        if ($value === '') {
-            return '';
-        }
-
-        return preg_replace('/\s+/', '', $value) ?? '';
-    }
     private function isConnectionError(string $error): bool
     {
         $error = strtolower($error);

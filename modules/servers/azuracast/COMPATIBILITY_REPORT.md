@@ -34,3 +34,9 @@ Mesmo com opcache desabilitado, recomenda-se deploy limpo da pasta `modules/serv
 
 
 - Fallback de API Key ampliado: `serveraccesshash` -> `serverpassword` -> `password` -> `serverusername` -> `username`.
+
+
+## Correção adicional: host/IP ausente no params
+
+- Corrigido erro `Configuração ausente: Nome do host/IP do servidor` com fallback de leitura de host por múltiplas chaves WHMCS.
+- Suporte a endpoint absoluto para bypass de resolução de host quando necessário.

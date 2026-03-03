@@ -50,3 +50,10 @@ A conexão usa os dados do servidor WHMCS cadastrado:
 
 
 - Fallback de API Key ampliado: `serveraccesshash` -> `serverpassword` -> `password` -> `serverusername` -> `username`.
+
+
+## Resolução de Host/IP (correção)
+
+Para aderir ao padrão WHMCS, o módulo tenta resolver host do servidor por múltiplas chaves (`serverhostname`, `hostname`, `serverip`, `ipaddress`, `servername` e equivalentes em `params["server"]`).
+
+Também é aceito endpoint absoluto (ex.: `https://radio.exemplo.com/api/admin/stations`) para ambientes com proxy/rewrite específico.

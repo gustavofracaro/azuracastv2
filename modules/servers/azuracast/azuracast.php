@@ -1,708 +1,591 @@
 <?php
+/**
+ * WHMCS Azuracast Provisoioning Module
+ *
+ * This module allows you to provision AzuraCast instances from WHMCS
+ *
+ * When setting up a new AzuraCast product in WHMCS, you will need to set the following Custom Fiels:
+ * Field Name: Station Name
+ * Field Type: Text Box
+ * Field Description: The Station Name - English Characters, Numbers and Spaces Only.
+ * Validation: /^[A-Za-z0-9 ]+$/
+ * Required Field, Show on Order Form
+ *
+ * @written_by Yahav [DOT] Shasha [AT] gmail [DOT] com
+ * @license Within the Lib folder there are some modified files from the [official AzuraCast PHP SDK](https://github.com/AzuraCast/php-api-client) (Apache-2.0 license)
+ * @license The rest is under "Do whatever you want" License
+ */
 
-declare(strict_types=1);
+if (!defined("WHMCS")) {
+    die("This file cannot be accessed directly");
+}
 
+use WHMCS\Module\Server\AzuraCast\Client;
+use WHMCS\Module\Server\AzuraCast\Dto\RoleDto;
+use WHMCS\Module\Server\AzuraCast\Service;
 use WHMCS\Database\Capsule;
 
-if (!defined('WHMCS')) {
-    die('This file cannot be accessed directly');
-}
-
-$autoloadFile = __DIR__ . '/vendor/autoload.php';
-if (is_file($autoloadFile)) {
-    require_once $autoloadFile;
-}
-
-function azuracast_MetaData(): array
+const AZURACAST_UPDATE_USER_PASSWORD_ON_ANOTHER_STATION_CREATION = false;
+/**
+ * Define module related meta data.
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/meta-data-params/
+ *
+ * @return array
+ */
+function azuracast_MetaData()
 {
-    return [
-        'DisplayName' => 'AzuraCast V2',
+    return array(
+        'DisplayName' => 'AzuraCast',
         'APIVersion' => '1.1',
         'RequiresServer' => true,
         'DefaultNonSSLPort' => '80',
         'DefaultSSLPort' => '443',
-    ];
+        'ServiceSingleSignOnLabel' => 'Login as User',
+        'AdminSingleSignOnLabel' => 'Login as Admin',
+
+    );
 }
 
-function azuracast_ConfigOptions(): array
+/**
+ * Define product configuration options.
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/config-options/
+ *
+ * @return array
+ */
+function azuracast_ConfigOptions()
 {
-    return [
-        'API Base URL' => [
+    return array(
+        'Maximum Bitrate' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => 'https://radio.example.com',
-            'Description' => 'Opcional: URL completa (se vazio usa Nome do host/IP do servidor WHMCS)',
+            'Size' => '10',
+            'Default' => '128',
+            'Description' => 'Enter in Kbps',
         ],
-        'API Key' => [
-            'Type' => 'password',
-            'Size' => '128',
-            'Description' => 'Opcional: API Key (se vazio usa Hash de Acesso do servidor WHMCS)',
-        ],
-        'Verify SSL' => [
-            'Type' => 'yesno',
-            'Description' => 'Marque para validar certificado SSL',
-        ],
-        'HTTP Timeout' => [
+        'Maximum Mounts' => [
             'Type' => 'text',
-            'Size' => '4',
-            'Default' => '60',
-            'Description' => 'Tempo em segundos para timeout HTTP',
+            'Size' => '10',
+            'Default' => '2',
+            'Description' => 'Maximum allowed Mount Points',
         ],
-
-        'Create Endpoint' => [
+        'Maximum HLS Streams' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => '/api/admin/stations',
-            'Description' => 'POST para criação de estação',
+            'Size' => '10',
+            'Default' => '2',
+            'Description' => 'Maximum allowed HLS Streams',
         ],
-        'Update Endpoint' => [
+        'Media Storage Limit' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => '/api/admin/station/{station_id}',
-            'Description' => 'PUT para atualização de estação',
+            'Size' => '10',
+            'Default' => '1000',
+            'Description' => 'Enter in Mb',
         ],
-        'Terminate Endpoint' => [
+        'Recordings Storage Limit' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => '/api/admin/station/{station_id}',
-            'Description' => 'DELETE para remoção da estação',
+            'Size' => '10',
+            'Default' => '1000',
+            'Description' => 'Enter in Mb',
         ],
-        'Suspend Endpoint' => [
+        'Podcasts Storage Limit' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => '/api/admin/station/{station_id}',
-            'Description' => 'Endpoint para suspensão lógica',
+            'Size' => '10',
+            'Default' => '1000',
+            'Description' => 'Enter in Mb',
         ],
-        'Unsuspend Endpoint' => [
+        'Maximum Listeners' => [
             'Type' => 'text',
-            'Size' => '64',
-            'Default' => '/api/admin/station/{station_id}',
-            'Description' => 'Endpoint para reativação lógica',
+            'Size' => '10',
+            'Default' => '100',
+            'Description' => 'Maximum Number of Listeners',
         ],
-
-        'Station Name Prefix' => [
-            'Type' => 'text',
-            'Size' => '30',
-            'Default' => 'radio-',
-        ],
-        'Default Timezone' => [
-            'Type' => 'text',
-            'Size' => '40',
-            'Default' => 'America/Sao_Paulo',
-        ],
-        'Default Language' => [
-            'Type' => 'text',
-            'Size' => '20',
-            'Default' => 'pt_BR',
-        ],
-        'Default Frontend Type' => [
-            'Type' => 'dropdown',
-            'Options' => 'icecast,shoutcast2,remote',
-            'Default' => 'icecast',
-        ],
-        'Default Backend Type' => [
-            'Type' => 'dropdown',
-            'Options' => 'liquidsoap,none,remote',
-            'Default' => 'liquidsoap',
-        ],
-        'Default Frontend Port' => [
-            'Type' => 'text',
-            'Size' => '5',
-            'Default' => '8000',
-        ],
-        'Default Backend Port' => [
-            'Type' => 'text',
-            'Size' => '5',
-            'Default' => '8005',
-        ],
-        'Default Max Listeners' => [
-            'Type' => 'text',
-            'Size' => '6',
-            'Default' => '0',
-            'Description' => '0 = ilimitado',
-        ],
-
-        'Create Payload JSON' => [
-            'Type' => 'textarea',
-            'Rows' => '8',
-            'Cols' => '80',
-            'Description' => 'JSON opcional para merge no payload de criação (aceita placeholders: {{service_id}}, {{domain}}, {{username}}, {{station_short_name}}).',
-        ],
-        'Suspend Payload JSON' => [
-            'Type' => 'textarea',
-            'Rows' => '4',
-            'Cols' => '80',
-            'Default' => '{"is_enabled":false}',
-            'Description' => 'Payload JSON para suspensão',
-        ],
-        'Unsuspend Payload JSON' => [
-            'Type' => 'textarea',
-            'Rows' => '4',
-            'Cols' => '80',
-            'Default' => '{"is_enabled":true}',
-            'Description' => 'Payload JSON para reativação',
-        ],
-        'Change Package Payload JSON' => [
-            'Type' => 'textarea',
-            'Rows' => '6',
-            'Cols' => '80',
-            'Description' => 'Payload JSON para upgrade/downgrade (merge com campos padrão)',
-        ],
-        'Follow Redirects' => [
-            'Type' => 'yesno',
-            'Description' => 'Seguir redirecionamentos HTTP (301/302/307/308)',
-        ],
-        'Max Redirects' => [
-            'Type' => 'text',
-            'Size' => '3',
-            'Default' => '5',
-            'Description' => 'Máximo de redirecionamentos HTTP',
-        ],
-    ];
+        'Server Type' => [
+            "FriendlyName" => "Server Type",
+            "Type" => "dropdown",
+            "Options" => "icecast,shoutcast",
+            "Description" => "The Frontend Type of the Station",
+            "Default" => "icecast",
+        ]
+    );
 }
 
+/**
+ * Provision a new instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
 function azuracast_CreateAccount(array $params)
 {
+    $service = new Service($params);
+    $azuracast = azuracast_ApiClient($params);
+
     try {
-        $existingStationId = azuracast_getStationId($params);
-        if (!empty($existingStationId)) {
-            return 'Serviço já possui station_id salvo: ' . $existingStationId;
+        // Create a new Station
+        /** @var \WHMCS\Module\Server\AzuraCast\Dto\StationDto $station */
+        $station = $azuracast->admin()->stations()->create($service);
+        $service->setStationId($station->getId());
+        $service->setMediaStorageId($station->getMediaStorageId());
+        $service->setRecordingsStorageId($station->getRecordingsStorageId());
+        $service->setPodcastsStorageId($station->getPodcastsStorageId());
+
+        // Modify Station's Storage Quota for each type
+        $storage = $azuracast->admin()->storage()->update($service);
+
+        // Create a role for this station
+        $role = $azuracast->admin()->roles()->create("Station {$station->getId()} Role", [], [$station->getId() => ["manage station automation", "manage station profile", "manage station broadcasting", "manage station media", "delete station media", "manage station mounts", "manage station podcasts", "manage station remotes", "manage station streamers", "manage station web hooks", "view station management", "view station reports", "view station logs"]]);
+        $service->setRoleId($role->getId());
+
+        // Look for other provisioned services at the same server
+        // (Which means there's already an AzuraCast user associated with the client)
+        $user = null;
+        $otherServices = azuracast_GetOtherActiveServicesAtSameServerForServiceModel($service->getModel());
+        if ($otherServices->isNotEmpty())
+        {
+            $azuracastUserId = $otherServices->first()->serviceProperties->get('userId');
+            $user = $azuracast->admin()->users()->get($azuracastUserId);
         }
 
-        $payload = azuracast_buildBaseStationPayload($params);
-        $payload = azuracast_mergeTemplateJson($payload, (string) ($params['configoption18'] ?? ''), $params);
-        $payload = azuracast_mergeWhmcsCustomFields($payload, $params);
+//        if ($user === null) {
+//            // Look for existing user with the same email address
+//            $user = $azuracast->admin()->users()->searchByEmail($service->getUserEmail());
+//        }
 
-        $result = azuracast_apiRequest($params, 'POST', (string) $params['configoption5'], $payload);
-        azuracast_ensureSuccess($result, 'Falha ao criar estação.');
-
-        $decoded = json_decode($result['body'], true);
-        if (!is_array($decoded)) {
-            return 'Estação criada, mas a resposta da API não é JSON válido.';
+        // If user doesn't exists, create it
+        if ($user === null) {
+            $user = $azuracast->admin()->users()->create(
+                $service->getUserEmail(),
+                $service->getPassword(),
+                $service->getUserFullName(),
+                'en_US',
+                [['id' => $role->getId()]]
+            );
         }
+        else {
+            // Update user's role
+            $newRoles = azuracast_GetCurrentUserRolesArray($user->getRoles());
+            $newRoles[] = ['id' => $role->getId()];
+            $user = $azuracast->admin()->users()->update(
+                $user->getId(),
+                $service->getUserEmail(),
+                AZURACAST_UPDATE_USER_PASSWORD_ON_ANOTHER_STATION_CREATION ? $service->getPassword() : '',
+                $service->getUserFullName(),
+                'en_US',
+                $newRoles,
+                $user->getCreatedAt(),
+            );
 
-        $stationId = $decoded['id'] ?? ($decoded['station']['id'] ?? null);
-        if (!$stationId) {
-            return 'Conta criada, mas o ID da estação não foi retornado pela API.';
+            if (AZURACAST_UPDATE_USER_PASSWORD_ON_ANOTHER_STATION_CREATION)
+            {
+                // Update the new password for all other related services
+                // This means the existing AzuraCast user's password will be changed
+                // This is inconvinient, but we need to do it IF we want to keep the password in WHMCS in sync with AzuraCast
+                $otherServices->each(function (WHMCS\Service\Service $otherService) use ($service) {
+                    /** @var \Illuminate\Database\Eloquent\Model $otherService */
+                    $otherService->serviceProperties->save(['Password' => $service->getPassword()]);
+                });
+            }
+
         }
+        $service->setUserId($user->getId());
 
-        azuracast_saveStationId($params, (string) $stationId);
 
-        return 'success';
-    } catch (Throwable $e) {
-        return 'Erro ao provisionar: ' . $e->getMessage();
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
     }
+
+    return 'success';
 }
 
+/**
+ * Suspend an instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
 function azuracast_SuspendAccount(array $params)
 {
-    return azuracast_stationPayloadAction(
-        $params,
-        'PUT',
-        (string) $params['configoption8'],
-        (string) ($params['configoption19'] ?? '{"is_enabled":false}')
-    );
+    try {
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
+
+        // Update the station
+        $azuracast->admin()->stations()->update($service, false);
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
+    }
+
+    return 'success';
 }
 
+/**
+ * Un-suspend instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
 function azuracast_UnsuspendAccount(array $params)
 {
-    return azuracast_stationPayloadAction(
-        $params,
-        'PUT',
-        (string) $params['configoption9'],
-        (string) ($params['configoption20'] ?? '{"is_enabled":true}')
-    );
+    try {
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
+
+        // Update the station
+        $azuracast->admin()->stations()->update($service, true);
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
+    }
+
+    return 'success';
 }
 
+/**
+ * Terminate instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
 function azuracast_TerminateAccount(array $params)
 {
     try {
-        $stationId = azuracast_requireStationId($params);
-        $endpoint = azuracast_resolveStationEndpoint((string) $params['configoption7'], $stationId);
 
-        $result = azuracast_apiRequest($params, 'DELETE', $endpoint);
-        azuracast_ensureSuccess($result, 'Falha ao remover estação.');
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
 
-        azuracast_saveStationId($params, '');
+        // Remove User Role
+        $azuracast->admin()->roles()->delete($service->getRoleId());
 
-        return 'success';
-    } catch (Throwable $e) {
-        return 'Erro no cancelamento: ' . $e->getMessage();
+        // Remove Station
+        $azuracast->admin()->stations()->delete($service->getStationId());
+
+        // Check if WHMCS client has another service
+        // If he doesn't, remove the user
+        $otherServices = azuracast_GetOtherActiveServicesAtSameServerForServiceModel($service->getModel());
+        if ($otherServices->isEmpty())
+        {
+            $azuracast->admin()->users()->delete($service->getUserId());
+        }
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
     }
+
+    return 'success';
 }
 
+/**
+ * Change the password for an instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
+function azuracast_ChangePassword(array $params)
+{
+    try {
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
+
+        $currentUser = $azuracast->admin()->users()->get($service->getUserId());
+
+        // Update the user's password
+        $user = $azuracast->admin()->users()->update(
+            $currentUser->getId(),
+            $currentUser->getEmail(),
+            $service->getPassword(),
+            $currentUser->getName(),
+            $currentUser->getLocale(),
+            azuracast_GetCurrentUserRolesArray($currentUser->getRoles()),
+            $currentUser->getCreatedAt(),
+        );
+
+        // Update the new password for all other related services
+        $newPassword = $service->getPassword();
+        $otherServices = azuracast_GetOtherActiveServicesAtSameServerForServiceModel($service->getModel());
+        if ($otherServices->isNotEmpty())
+        {
+            $otherServices->each(function (WHMCS\Service\Service $otherService) use ($newPassword) {
+                /** @var \Illuminate\Database\Eloquent\Model $otherService */
+                $otherService->serviceProperties->save(['Password' => $newPassword]);
+            });
+        }
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
+    }
+
+    return 'success';
+}
+
+/**
+ * Upgrade or downgrade an instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return string "success" or an error message
+ */
 function azuracast_ChangePackage(array $params)
 {
     try {
-        $stationId = azuracast_requireStationId($params);
-        $endpoint = azuracast_resolveStationEndpoint((string) $params['configoption6'], $stationId);
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
 
-        $payload = [
-            'frontend_config' => [
-                'port' => (int) ($params['configoption15'] ?? 8000),
-                'max_listeners' => (int) ($params['configoption17'] ?? 0),
-            ],
-            'backend_config' => [
-                'port' => (int) ($params['configoption16'] ?? 8005),
-            ],
-        ];
+        // Update the station with the new service
+        $azuracast->admin()->stations()->update($service, true);
 
-        $payload = azuracast_mergeTemplateJson($payload, (string) ($params['configoption21'] ?? ''), $params);
-        $payload = azuracast_mergeWhmcsCustomFields($payload, $params);
+        // Modify Station's Storage Quota for each type
+        $storage = $azuracast->admin()->storage()->update($service);
 
-        $result = azuracast_apiRequest($params, 'PUT', $endpoint, $payload);
-        azuracast_ensureSuccess($result, 'Falha ao atualizar pacote da estação.');
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
 
-        return 'success';
-    } catch (Throwable $e) {
-        return 'Erro ao alterar pacote: ' . $e->getMessage();
-    }
-}
-
-function azuracast_TestConnection(array $params): array
-{
-    try {
-        $result = azuracast_apiRequest($params, 'GET', '/api/status');
-        if ($result['http_code'] >= 200 && $result['http_code'] < 300) {
-            return ['success' => true, 'error' => ''];
-        }
-
-        return ['success' => false, 'error' => 'HTTP ' . $result['http_code'] . ' - ' . $result['body']];
-    } catch (Throwable $e) {
-        return ['success' => false, 'error' => $e->getMessage()];
-    }
-}
-
-function azuracast_ClientAreaCustomButtonArray(): array
-{
-    return [
-        'Abrir Painel da Estação' => 'openPanel',
-        'Sincronizar station_id pela API' => 'syncStationByShortName',
-    ];
-}
-
-function azuracast_AdminCustomButtonArray(): array
-{
-    return [
-        'Abrir Painel da Estação' => 'openPanel',
-        'Sincronizar station_id pela API' => 'syncStationByShortName',
-    ];
-}
-
-function azuracast_openPanel(array $params)
-{
-    try {
-        $stationId = azuracast_requireStationId($params);
-        $base = rtrim(azuracast_getBaseUrl($params), '/');
-
-        return [
-            'success' => true,
-            'redirectTo' => $base . '/station/' . rawurlencode((string) $stationId),
-        ];
-    } catch (Throwable $e) {
         return $e->getMessage();
     }
+
+    return 'success';
 }
 
-function azuracast_syncStationByShortName(array $params)
+/**
+ * Test connection with the given server parameters.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return array
+ */
+function azuracast_TestConnection(array $params)
 {
     try {
-        $shortName = azuracast_buildShortName($params);
-        $result = azuracast_apiRequest($params, 'GET', '/api/admin/stations');
-        azuracast_ensureSuccess($result, 'Falha ao listar estações para sincronização.');
+        $azuracast = azuracast_ApiClient($params);
+        $azuracast->admin()->serverStats()->get();
 
-        $stations = json_decode($result['body'], true);
-        if (!is_array($stations)) {
-            return 'Resposta inesperada ao listar estações.';
-        }
+        $success = true;
+        $errorMsg = '';
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
 
-        foreach ($stations as $station) {
-            if (!is_array($station)) {
-                continue;
-            }
-
-            if (($station['short_name'] ?? null) === $shortName && !empty($station['id'])) {
-                azuracast_saveStationId($params, (string) $station['id']);
-                return 'success';
-            }
-        }
-
-        return 'Estação não encontrada para short_name: ' . $shortName;
-    } catch (Throwable $e) {
-        return 'Erro na sincronização: ' . $e->getMessage();
+        $success = false;
+        $errorMsg = $e->getMessage();
     }
+
+    return array(
+        'success' => $success,
+        'error' => $errorMsg,
+    );
 }
 
-function azuracast_stationPayloadAction(array $params, string $method, string $endpointTemplate, string $payloadJson)
+/**
+ * Perform single sign-on for a given instance of a product/service.
+ *
+ * @param array $params common module parameters
+ *
+ * @return array
+ *@see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ */
+
+function azuracast_ServiceSingleSignOn(array $params)
 {
-    try {
-        $stationId = azuracast_requireStationId($params);
-        $endpoint = azuracast_resolveStationEndpoint($endpointTemplate, $stationId);
-        $payload = azuracast_parseJsonTemplate($payloadJson, $params);
-
-        $result = azuracast_apiRequest($params, $method, $endpoint, $payload);
-        azuracast_ensureSuccess($result, 'Falha na ação da estação.');
-
-        return 'success';
-    } catch (Throwable $e) {
-        return 'Erro na ação da estação: ' . $e->getMessage();
-    }
-}
-
-function azuracast_buildBaseStationPayload(array $params): array
-{
-    $payload = [
-        'name' => azuracast_stationDisplayName($params),
-        'description' => 'Provisionado via WHMCS. Service ID: ' . ($params['serviceid'] ?? ''),
-        'short_name' => azuracast_buildShortName($params),
-        'frontend_type' => (string) ($params['configoption13'] ?? 'icecast'),
-        'backend_type' => (string) ($params['configoption14'] ?? 'liquidsoap'),
-        'frontend_config' => [
-            'port' => (int) ($params['configoption15'] ?? 8000),
-            'max_listeners' => (int) ($params['configoption17'] ?? 0),
-        ],
-        'backend_config' => [
-            'port' => (int) ($params['configoption16'] ?? 8005),
-        ],
-        'timezone' => (string) ($params['configoption11'] ?? 'UTC'),
-        'default_language' => (string) ($params['configoption12'] ?? 'en_US'),
-        'enable_public_page' => true,
-        'enable_streamers' => true,
-    ];
-
-    return $payload;
-}
-
-function azuracast_mergeWhmcsCustomFields(array $payload, array $params): array
-{
-    $customFields = $params['customfields'] ?? [];
-    if (!is_array($customFields)) {
-        return $payload;
-    }
-
-    $knownScalarFields = [
-        'name',
-        'description',
-        'timezone',
-        'default_language',
-        'frontend_type',
-        'backend_type',
-        'max_bitrate',
-        'is_public',
-        'enable_public_page',
-        'enable_on_demand',
-        'enable_streamers',
-        'record_streams',
-    ];
-
-    foreach ($knownScalarFields as $field) {
-        $key = 'azuracast_' . $field;
-        if (array_key_exists($key, $customFields) && $customFields[$key] !== '') {
-            $payload[$field] = azuracast_castValue($customFields[$key]);
-        }
-    }
-
-    $jsonOverrideKey = 'azuracast_payload_json';
-    if (!empty($customFields[$jsonOverrideKey])) {
-        $payload = azuracast_mergeTemplateJson($payload, (string) $customFields[$jsonOverrideKey], $params);
-    }
-
-    if (!empty($customFields['station_name'])) {
-        $payload['name'] = trim((string) $customFields['station_name']);
-    }
-
-    return $payload;
-}
-
-function azuracast_mergeTemplateJson(array $basePayload, string $json, array $params): array
-{
-    if (trim($json) === '') {
-        return $basePayload;
-    }
-
-    $extra = azuracast_parseJsonTemplate($json, $params);
-    return azuracast_arrayMergeRecursiveDistinct($basePayload, $extra);
-}
-
-function azuracast_parseJsonTemplate(string $json, array $params): array
-{
-    if (trim($json) === '') {
-        return [];
-    }
-
-    $shortName = azuracast_buildShortName($params);
-    $replaced = strtr($json, [
-        '{{service_id}}' => (string) ($params['serviceid'] ?? ''),
-        '{{domain}}' => (string) ($params['domain'] ?? ''),
-        '{{username}}' => (string) ($params['username'] ?? ''),
-        '{{station_short_name}}' => $shortName,
-    ]);
-
-    $decoded = json_decode($replaced, true);
-    if (!is_array($decoded)) {
-        throw new RuntimeException('JSON inválido em payload template.');
-    }
-
-    return $decoded;
-}
-
-function azuracast_arrayMergeRecursiveDistinct(array $base, array $override): array
-{
-    foreach ($override as $key => $value) {
-        if (is_array($value) && isset($base[$key]) && is_array($base[$key])) {
-            $base[$key] = azuracast_arrayMergeRecursiveDistinct($base[$key], $value);
-            continue;
-        }
-
-        $base[$key] = $value;
-    }
-
-    return $base;
-}
-
-function azuracast_apiRequest(array $params, string $method, string $endpoint, ?array $payload = null): array
-{
-    $baseUrl = rtrim(azuracast_getBaseUrl($params), '/');
-    $apiKey = azuracast_getApiKey($params);
-    $verifySsl = !empty($params['configoption3']);
-    $timeout = (int) ($params['configoption4'] ?? 60);
-    $followRedirects = !empty($params['configoption22']);
-    $maxRedirects = (int) ($params['configoption23'] ?? 5);
-
-    if ($baseUrl === '' || $apiKey === '') {
-        throw new RuntimeException('Configurações obrigatórias ausentes: URL do AzuraCast e API Key (API Key ou Hash de Acesso do servidor).');
-    }
-
-    $url = $baseUrl . '/' . ltrim($endpoint, '/');
-    $ch = curl_init($url);
-    if ($ch === false) {
-        throw new RuntimeException('Não foi possível iniciar CURL.');
-    }
-
-    $headers = [
-        'Accept: application/json',
-        'X-API-Key: ' . $apiKey,
-    ];
-
-    $body = null;
-    if ($payload !== null) {
-        $body = json_encode($payload);
-        if ($body === false) {
-            throw new RuntimeException('Falha ao serializar payload em JSON.');
-        }
-
-        $headers[] = 'Content-Type: application/json';
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-    }
-
-    curl_setopt_array($ch, [
-        CURLOPT_CUSTOMREQUEST => strtoupper($method),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => max(5, $timeout),
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_SSL_VERIFYPEER => $verifySsl,
-        CURLOPT_SSL_VERIFYHOST => $verifySsl ? 2 : 0,
-        CURLOPT_FOLLOWLOCATION => $followRedirects,
-        CURLOPT_MAXREDIRS => max(1, $maxRedirects),
-    ]);
-
-    $responseBody = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    logModuleCall(
-        'azuracast',
-        strtoupper($method) . ' ' . $endpoint,
-        $payload,
-        [
-            'http_code' => $httpCode,
-            'response' => $responseBody,
-            'curl_error' => $curlError,
-        ],
-        $body
+    $return = array(
+        'success' => false,
     );
 
-    if ($responseBody === false) {
-        throw new RuntimeException('Erro CURL: ' . $curlError);
+    try {
+
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
+        $loginUrl = $azuracast->admin()->users()->getLoginLink($service->getUserId());
+
+        $return = array(
+            'success' => true,
+            'redirectTo' => $loginUrl,
+        );
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
     }
 
-    return [
-        'http_code' => $httpCode,
-        'body' => (string) $responseBody,
+    return $return;
+}
+
+/**
+ * Perform single sign-on for a server.
+ *
+ * @param array $params common module parameters
+ *
+ * @see https://developers.whmcs.com/provisioning-modules/module-parameters/
+ *
+ * @return array
+ */
+function provisioningmodule_AdminSingleSignOn(array $params)
+{
+    $return = array(
+        'success' => false,
+    );
+
+    try {
+
+        $service = new Service($params);
+        $azuracast = azuracast_ApiClient($params);
+        $administratorUserId = $azuracast->admin()->users()->getAdministratorUserIdFromToken();
+        $loginUrl = $azuracast->admin()->users()->getLoginLink($administratorUserId);
+
+        $return = array(
+            'success' => true,
+            'redirectTo' => $loginUrl,
+        );
+
+    } catch (Exception $e) {
+        // Record the error in WHMCS's module log.
+        logModuleCall(
+            'azuracast',
+            __FUNCTION__,
+            $params,
+            $e->getMessage(),
+            $e->getTraceAsString()
+        );
+
+        return $e->getMessage();
+    }
+
+    return $return;
+}
+
+function azuracast_ClientArea($params)
+{
+    $service = new Service($params);
+    $productConfigOptions = [
+        'Maximum Bitrate' => $service->getMaxBitrate() . ' Kbps',
+        'Maximum Mounts' => $service->getMaxMounts() . ' Mounts',
+        'Maximum HLS Streams' => $service->getMaxHlsStreams() . ' HLS Streams',
+        'Media Storage Limit' => $service->getMediaStorage() . ' MB',
+        'Recordings Storage Limit' => $service->getRecordingsStorage() . ' MB',
+        'Podcasts Storage Limit' => $service->getPodcastsStorage() . ' MB',
+        'Maximum Listeners' => $service->getMaxListeners() . ' Listeners',
+        'Server Type' => $service->getServerType(),
     ];
+    
+    return array(
+        'templatefile' => 'clientarea',
+        'vars' => array(
+            'params' => $params,
+            'productConfigOptions' => $productConfigOptions,
+        ),
+    );
 }
 
-function azuracast_getBaseUrl(array $params): string
+function azuracast_ApiClient($params) : Client
 {
-    $fromConfig = trim((string) ($params['configoption1'] ?? ''));
-    if ($fromConfig !== '') {
-        return $fromConfig;
-    }
-
-    $hostname = trim((string) ($params['serverhostname'] ?? ''));
-    $ip = trim((string) ($params['serverip'] ?? ''));
-    $secure = (string) ($params['serversecure'] ?? '') === 'on';
-
-    $host = $hostname !== '' ? $hostname : $ip;
-    if ($host === '') {
-        return '';
-    }
-
-    if (str_starts_with($host, 'http://') || str_starts_with($host, 'https://')) {
-        return rtrim($host, '/');
-    }
-
-    $scheme = $secure ? 'https://' : 'http://';
-    return $scheme . $host;
+    $host = 'https://' . $params['serverhostname'];
+    $apiKey = $params['serveraccesshash'];
+    return Client::create($host, $apiKey);
 }
 
-function azuracast_getApiKey(array $params): string
+/**
+ * @param RoleDto[] $existingUserRoles
+ * @return array
+ */
+function azuracast_GetCurrentUserRolesArray(array $existingUserRoles)
 {
-    $configApiKey = trim((string) ($params['configoption2'] ?? ''));
-    if ($configApiKey !== '') {
-        return $configApiKey;
+    $roles = [];
+    foreach ($existingUserRoles as $existingUserRole) {
+        $roles[] = ['id' => $existingUserRole->getId()];
     }
 
-    $accessHash = trim((string) ($params['serveraccesshash'] ?? ''));
-    if ($accessHash !== '') {
-        return $accessHash;
-    }
-
-    $password = trim((string) ($params['serverpassword'] ?? ''));
-    if ($password !== '') {
-        return $password;
-    }
-
-    return '';
+    return $roles;
 }
 
-function azuracast_ensureSuccess(array $result, string $message): void
+function azuracast_GetOtherActiveServicesAtSameServerForServiceModel(WHMCS\Service\Service $serviceModel): \Illuminate\Database\Eloquent\Collection
 {
-    if (($result['http_code'] ?? 0) >= 300) {
-        throw new RuntimeException($message . ' HTTP ' . $result['http_code'] . ': ' . ($result['body'] ?? '') . (($result['http_code'] >= 300 && $result['http_code'] < 400) ? ' (verifique URL base/HTTPS/redirecionamento)' : ''));
-    }
-}
+    $currentServerId = $serviceModel->server;
+    $currentServiceId = $serviceModel->id;
 
-function azuracast_buildShortName(array $params): string
-{
-    $prefix = trim((string) ($params['configoption10'] ?? 'radio-'));
-    $candidate = $prefix . ($params['serviceid'] ?? '');
-
-    $customFields = $params['customfields'] ?? [];
-    if (!empty($customFields['azuracast_short_name'])) {
-        $candidate = (string) $customFields['azuracast_short_name'];
-    }
-
-    $clean = preg_replace('/[^a-z0-9_\-]/', '', strtolower($candidate));
-    if (!$clean) {
-        $clean = 'radio' . ($params['serviceid'] ?? '');
-    }
-
-    return $clean;
-}
-
-function azuracast_stationDisplayName(array $params): string
-{
-    $domain = trim((string) ($params['domain'] ?? ''));
-    if ($domain !== '') {
-        return 'Rádio ' . $domain;
-    }
-
-    return 'Rádio #' . ($params['serviceid'] ?? '');
-}
-
-function azuracast_requireStationId(array $params): string
-{
-    $stationId = azuracast_getStationId($params);
-    if (!$stationId) {
-        throw new RuntimeException('station_id não encontrado para este serviço.');
-    }
-
-    return $stationId;
-}
-
-function azuracast_getStationId(array $params): ?string
-{
-    $customFields = $params['customfields'] ?? [];
-    if (!is_array($customFields)) {
-        $customFields = [];
-    }
-
-    foreach (['station_id', 'Station ID', 'stationid', 'azuracast_station_id'] as $key) {
-        if (!empty($customFields[$key])) {
-            return trim((string) $customFields[$key]);
-        }
-    }
-
-    return null;
-}
-
-function azuracast_resolveStationEndpoint(string $template, string $stationId): string
-{
-    if (trim($template) === '') {
-        throw new RuntimeException('Endpoint da ação não configurado.');
-    }
-
-    return str_replace('{station_id}', rawurlencode($stationId), $template);
-}
-
-function azuracast_castValue($value)
-{
-    $value = trim((string) $value);
-    $lower = strtolower($value);
-
-    if ($lower === 'true' || $lower === 'yes' || $lower === 'on') {
-        return true;
-    }
-
-    if ($lower === 'false' || $lower === 'no' || $lower === 'off') {
-        return false;
-    }
-
-    if (is_numeric($value)) {
-        return strpos($value, '.') !== false ? (float) $value : (int) $value;
-    }
-
-    return $value;
-}
-
-function azuracast_saveStationId(array $params, string $stationId): void
-{
-    $serviceId = (int) ($params['serviceid'] ?? 0);
-    $productId = (int) ($params['pid'] ?? 0);
-    if ($serviceId <= 0 || $productId <= 0) {
-        return;
-    }
-
-    $customField = Capsule::table('tblcustomfields')
-        ->where('type', 'product')
-        ->where('relid', $productId)
-        ->whereIn('fieldname', ['station_id', 'Station ID', 'stationid', 'azuracast_station_id'])
-        ->orderBy('id', 'asc')
-        ->first();
-
-    if (!$customField) {
-        return;
-    }
-
-    $exists = Capsule::table('tblcustomfieldsvalues')
-        ->where('fieldid', $customField->id)
-        ->where('relid', $serviceId)
-        ->first();
-
-    if ($exists) {
-        Capsule::table('tblcustomfieldsvalues')
-            ->where('fieldid', $customField->id)
-            ->where('relid', $serviceId)
-            ->update(['value' => $stationId]);
-
-        return;
-    }
-
-    Capsule::table('tblcustomfieldsvalues')->insert([
-        'fieldid' => $customField->id,
-        'relid' => $serviceId,
-        'value' => $stationId,
-    ]);
+    return $serviceModel->client->services()->whereIn('domainStatus', ['Active', 'Suspended'])->where('server', $currentServerId)->where('id', '!=', $currentServiceId)->get();
 }

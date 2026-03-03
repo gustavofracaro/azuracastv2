@@ -47,3 +47,6 @@ A conexão usa os dados do servidor WHMCS cadastrado:
 
 - PHP 8.3, 8.4, 8.5
 - WHMCS (módulo de servidor API v1.1)
+
+
+- Fallback de API Key ampliado: `serveraccesshash` -> `serverpassword` -> `password` -> `serverusername` -> `username`.

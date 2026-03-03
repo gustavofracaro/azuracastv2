@@ -31,3 +31,6 @@ Arquivos atuais do módulo:
 ## Observação operacional
 
 Mesmo com opcache desabilitado, recomenda-se deploy limpo da pasta `modules/servers/azuracast` para evitar arquivos legados.
+
+
+- Fallback de API Key ampliado: `serveraccesshash` -> `serverpassword` -> `password` -> `serverusername` -> `username`.

@@ -16,7 +16,7 @@ final class ApiClient
     {
         $apiKey = $this->apiKey();
         if ($apiKey === '') {
-            throw new RuntimeException('Configuração ausente: API Key no Access Hash ou senha do servidor.');
+            throw new RuntimeException('Configuração ausente: API Key. Preencha Access Hash, Senha ou Usuário do servidor WHMCS.');
         }
 
         $baseUrls = $this->baseUrlCandidates();
@@ -55,12 +55,22 @@ final class ApiClient
 
     public function apiKey(): string
     {
-        $accessHash = trim((string) ($this->params['serveraccesshash'] ?? ''));
-        if ($accessHash !== '') {
-            return $accessHash;
+        $candidates = [
+            (string) ($this->params['serveraccesshash'] ?? ''),
+            (string) ($this->params['serverpassword'] ?? ''),
+            (string) ($this->params['password'] ?? ''),
+            (string) ($this->params['serverusername'] ?? ''),
+            (string) ($this->params['username'] ?? ''),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $token = $this->normalizeToken($candidate);
+            if ($token !== '') {
+                return $token;
+            }
         }
 
-        return trim((string) ($this->params['serverpassword'] ?? ''));
+        return '';
     }
 
     /** @return array{http_code:int,body:string,curl_error:string} */
@@ -180,6 +190,17 @@ final class ApiClient
         return $secure ? [$https, $http] : [$http, $https];
     }
 
+
+    private function normalizeToken(string $value): string
+    {
+        // Alguns Access Hashes podem vir com quebras de linha/espacos.
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        return preg_replace('/\s+/', '', $value) ?? '';
+    }
     private function isConnectionError(string $error): bool
     {
         $error = strtolower($error);

@@ -61,3 +61,5 @@ Também é aceito endpoint absoluto (ex.: `https://radio.exemplo.com/api/admin/s
 - Corrigido erro fatal `Call to undefined method ...::normalizeToken()` com implementação da normalização de Access Hash/API Key.
 
 - Resolução de host reforçada com fallback a `tblservers` via `serverid` quando campos padrão não vierem no `$params`.
+
+- Fallback adicional para servidor WHMCS: quando `serverid` não vier em `$params`, o módulo tenta descobrir por `tblhosting.server` e por `tblproducts.servergroup`/`tblservergroupsrel`.

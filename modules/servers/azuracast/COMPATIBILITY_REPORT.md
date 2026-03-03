@@ -44,3 +44,5 @@ Mesmo com opcache desabilitado, recomenda-se deploy limpo da pasta `modules/serv
 - Corrigido erro fatal `Call to undefined method ...::normalizeToken()` com implementação da normalização de Access Hash/API Key.
 
 - Correção crítica: fallback para leitura de host/IP e credenciais direto de `tblservers` quando `$params` vier incompleto.
+
+- Fallback adicional de resolução do servidor: `serverid` -> `tblhosting.server` -> `tblproducts.servergroup`/`tblservergroupsrel`.

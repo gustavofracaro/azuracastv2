@@ -228,6 +228,38 @@ final class ApiClient
         }
 
         $serverId = (int) ($this->params['serverid'] ?? 0);
+
+        if ($serverId <= 0) {
+            $serviceId = (int) ($this->params['serviceid'] ?? 0);
+            if ($serviceId > 0) {
+                try {
+                    $hostingServerId = (int) (Capsule::table('tblhosting')->where('id', $serviceId)->value('server') ?? 0);
+                    if ($hostingServerId > 0) {
+                        $serverId = $hostingServerId;
+                    }
+                } catch (\Throwable) {
+                    // Ignora e segue para próximos fallbacks.
+                }
+            }
+        }
+
+        if ($serverId <= 0) {
+            $productId = (int) ($this->params['pid'] ?? 0);
+            if ($productId > 0) {
+                try {
+                    $serverGroupId = (int) (Capsule::table('tblproducts')->where('id', $productId)->value('servergroup') ?? 0);
+                    if ($serverGroupId > 0) {
+                        $groupServerId = (int) (Capsule::table('tblservergroupsrel')->where('groupid', $serverGroupId)->orderBy('serverid', 'asc')->value('serverid') ?? 0);
+                        if ($groupServerId > 0) {
+                            $serverId = $groupServerId;
+                        }
+                    }
+                } catch (\Throwable) {
+                    // Ignora e mantém comportamento defensivo.
+                }
+            }
+        }
+
         if ($serverId <= 0) {
             return [];
         }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace WHMCS\Module\Server\AzuraCast;
 
 use RuntimeException;
+use WHMCS\Database\Capsule;
 
 final class ApiClient
 {
@@ -20,10 +21,10 @@ final class ApiClient
         }
 
         $absoluteEndpoint = str_starts_with($endpoint, 'http://') || str_starts_with($endpoint, 'https://');
-
         $baseUrls = $absoluteEndpoint ? [''] : $this->baseUrlCandidates();
+
         if ($baseUrls === []) {
-            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor. Verifique o servidor WHMCS (Hostname/IP) ou use endpoint absoluto (https://...).');
+            throw new RuntimeException('Configuração ausente: Nome do host/IP do servidor. Verifique o servidor atribuído ao produto no WHMCS.');
         }
 
         $timeout = max(5, (int) ($this->params['configoption2'] ?? 60));
@@ -32,10 +33,8 @@ final class ApiClient
         $maxRedirects = max(1, (int) ($this->params['configoption21'] ?? 5));
 
         $lastError = null;
-
         foreach ($baseUrls as $baseUrl) {
             $result = $this->performRequest($baseUrl, $method, $endpoint, $payload, $apiKey, $timeout, $verifySsl, $followRedirects, $maxRedirects);
-
             if ($result['curl_error'] === '') {
                 return ['http_code' => $result['http_code'], 'body' => $result['body']];
             }
@@ -57,11 +56,15 @@ final class ApiClient
 
     public function apiKey(): string
     {
+        $server = $this->serverData();
         $candidates = [
             (string) ($this->params['serveraccesshash'] ?? ''),
+            (string) ($server['accesshash'] ?? ''),
             (string) ($this->params['serverpassword'] ?? ''),
+            (string) ($server['password'] ?? ''),
             (string) ($this->params['password'] ?? ''),
             (string) ($this->params['serverusername'] ?? ''),
+            (string) ($server['username'] ?? ''),
             (string) ($this->params['username'] ?? ''),
         ];
 
@@ -148,11 +151,7 @@ final class ApiClient
 
         if (in_array($httpCode, [301, 302, 307, 308], true) && !$followRedirects) {
             if ($maxRedirects <= 0) {
-                return [
-                    'http_code' => $httpCode,
-                    'body' => $body,
-                    'curl_error' => '',
-                ];
+                return ['http_code' => $httpCode, 'body' => $body, 'curl_error' => ''];
             }
 
             $location = $this->extractLocationHeader($rawHeaders);
@@ -177,10 +176,7 @@ final class ApiClient
     /** @return list<string> */
     private function baseUrlCandidates(): array
     {
-        $server = $this->params['server'] ?? [];
-        if (!is_array($server)) {
-            $server = [];
-        }
+        $server = $this->serverData();
 
         $hostCandidates = [
             (string) ($this->params['serverhostname'] ?? ''),
@@ -223,6 +219,39 @@ final class ApiClient
         return $secure ? [$https, $http] : [$http, $https];
     }
 
+    /** @return array<string,mixed> */
+    private function serverData(): array
+    {
+        $server = $this->params['server'] ?? [];
+        if (is_array($server) && $server !== []) {
+            return $server;
+        }
+
+        $serverId = (int) ($this->params['serverid'] ?? 0);
+        if ($serverId <= 0) {
+            return [];
+        }
+
+        try {
+            $row = Capsule::table('tblservers')->where('id', $serverId)->first();
+            if (!$row) {
+                return [];
+            }
+
+            return [
+                'hostname' => (string) ($row->hostname ?? ''),
+                'ipaddress' => (string) ($row->ipaddress ?? ''),
+                'name' => (string) ($row->name ?? ''),
+                'username' => (string) ($row->username ?? ''),
+                'password' => (string) ($row->password ?? ''),
+                'accesshash' => (string) ($row->accesshash ?? ''),
+                'secure' => (string) ($row->secure ?? ''),
+                'port' => (string) ($row->port ?? ''),
+            ];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
 
     private function normalizeToken(string $candidate): string
     {
@@ -231,7 +260,6 @@ final class ApiClient
             return '';
         }
 
-        // Access Hash do WHMCS pode conter quebras de linha e espaços.
         return preg_replace('/\s+/', '', $candidate) ?? '';
     }
 

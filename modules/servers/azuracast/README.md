@@ -59,3 +59,5 @@ Para aderir ao padrão WHMCS, o módulo tenta resolver host do servidor por múl
 Também é aceito endpoint absoluto (ex.: `https://radio.exemplo.com/api/admin/stations`) para ambientes com proxy/rewrite específico.
 
 - Corrigido erro fatal `Call to undefined method ...::normalizeToken()` com implementação da normalização de Access Hash/API Key.
+
+- Resolução de host reforçada com fallback a `tblservers` via `serverid` quando campos padrão não vierem no `$params`.

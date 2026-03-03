@@ -48,3 +48,5 @@ Checklist validado:
 ## Resultado
 
 Módulo revisado e alinhado ao fluxo esperado de provisioning module do WHMCS e uso de API do AzuraCast, com correção defensiva adicional de redirecionamento.
+
+- Ajuste de robustez WHMCS: consulta de `tblservers` por `serverid` como fallback compatível quando host/IP não estiver presente em `$params`.

@@ -40,3 +40,5 @@ Mesmo com opcache desabilitado, recomenda-se deploy limpo da pasta `modules/serv
 
 - Corrigido erro `Configuração ausente: Nome do host/IP do servidor` com fallback de leitura de host por múltiplas chaves WHMCS.
 - Suporte a endpoint absoluto para bypass de resolução de host quando necessário.
+
+- Corrigido erro fatal `Call to undefined method ...::normalizeToken()` com implementação da normalização de Access Hash/API Key.

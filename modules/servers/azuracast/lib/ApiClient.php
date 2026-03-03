@@ -215,6 +215,18 @@ final class ApiClient
         return $secure ? [$https, $http] : [$http, $https];
     }
 
+
+    private function normalizeToken(string $candidate): string
+    {
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            return '';
+        }
+
+        // Access Hash do WHMCS pode conter quebras de linha e espaços.
+        return preg_replace('/\s+/', '', $candidate) ?? '';
+    }
+
     private function isConnectionError(string $error): bool
     {
         $error = strtolower($error);

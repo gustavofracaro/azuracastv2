@@ -1,4 +1,4 @@
-# Módulo WHMCS: AzuraCast Streaming Automation
+# Módulo WHMCS: AzuraCast V2
 
 Módulo de automação de servidor para WHMCS, com integração via API administrativa do AzuraCast.
 
@@ -17,11 +17,22 @@ Módulo de automação de servidor para WHMCS, com integração via API administ
 ## Instalação
 
 1. Copie a pasta para `modules/servers/azuracast`.
-2. No WHMCS, crie/edite um servidor e selecione o tipo **AzuraCast Streaming Automation**.
+2. No WHMCS, crie/edite um servidor e selecione o tipo **AzuraCast V2**.
 3. Associe o produto ao servidor.
 4. Crie no produto os custom fields recomendados:
    - `station_id` (persistência do ID retornado pela API)
    - `station_name` (nome da estação no provisionamento)
+
+
+
+## Credenciais no padrão WHMCS
+
+Para evitar erro de configuração em produção, o módulo agora segue a convenção WHMCS:
+
+- **URL do AzuraCast**: pode ser definida em `API Base URL` **ou** inferida de `Nome do host/IP` do servidor.
+- **API Key**: pode ser definida em `API Key` **ou** lida do campo `Hash de Acesso` do servidor (fallback para senha do servidor).
+
+Com isso, o cenário comum de preencher somente Host + Access Hash funciona normalmente.
 
 ## Configuração de endpoints (padrão)
 
@@ -86,3 +97,9 @@ Esses campos são convertidos automaticamente para boolean/número quando aplic�
 - Use API Key de admin com escopo suficiente para endpoints administrativos.
 - `Suspend/Unsuspend` por padrão usam update da estação com `{"is_enabled": false/true}`.
 - Para cenários não cobertos, use os payloads JSON de template para enviar qualquer campo aceito pela sua API do AzuraCast.
+
+
+## Compatibilidade
+
+- PHP 8.3, 8.4 e 8.5
+- Sem dependências externas obrigatórias (vendor não é necessário para execução).

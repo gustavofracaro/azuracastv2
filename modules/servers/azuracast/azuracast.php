@@ -8,10 +8,15 @@ if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
 }
 
+$autoloadFile = __DIR__ . '/vendor/autoload.php';
+if (is_file($autoloadFile)) {
+    require_once $autoloadFile;
+}
+
 function azuracast_MetaData(): array
 {
     return [
-        'DisplayName' => 'AzuraCast Streaming Automation',
+        'DisplayName' => 'AzuraCast V2',
         'APIVersion' => '1.1',
         'RequiresServer' => true,
         'DefaultNonSSLPort' => '80',
@@ -26,12 +31,12 @@ function azuracast_ConfigOptions(): array
             'Type' => 'text',
             'Size' => '64',
             'Default' => 'https://radio.example.com',
-            'Description' => 'URL do painel AzuraCast (sem barra final)',
+            'Description' => 'Opcional: URL completa (se vazio usa Nome do host/IP do servidor WHMCS)',
         ],
         'API Key' => [
             'Type' => 'password',
             'Size' => '128',
-            'Description' => 'Chave da API (Admin > API Keys)',
+            'Description' => 'Opcional: API Key (se vazio usa Hash de Acesso do servidor WHMCS)',
         ],
         'Verify SSL' => [
             'Type' => 'yesno',
@@ -278,7 +283,7 @@ function azuracast_openPanel(array $params)
 {
     try {
         $stationId = azuracast_requireStationId($params);
-        $base = rtrim((string) $params['configoption1'], '/');
+        $base = rtrim(azuracast_getBaseUrl($params), '/');
 
         return [
             'success' => true,
@@ -447,13 +452,13 @@ function azuracast_arrayMergeRecursiveDistinct(array $base, array $override): ar
 
 function azuracast_apiRequest(array $params, string $method, string $endpoint, ?array $payload = null): array
 {
-    $baseUrl = rtrim((string) ($params['configoption1'] ?? ''), '/');
-    $apiKey = trim((string) ($params['configoption2'] ?? ''));
+    $baseUrl = rtrim(azuracast_getBaseUrl($params), '/');
+    $apiKey = azuracast_getApiKey($params);
     $verifySsl = !empty($params['configoption3']);
     $timeout = (int) ($params['configoption4'] ?? 60);
 
     if ($baseUrl === '' || $apiKey === '') {
-        throw new RuntimeException('Configurações obrigatórias ausentes: API Base URL e API Key.');
+        throw new RuntimeException('Configurações obrigatórias ausentes: URL do AzuraCast e API Key (API Key ou Hash de Acesso do servidor).');
     }
 
     $url = $baseUrl . '/' . ltrim($endpoint, '/');
@@ -512,6 +517,50 @@ function azuracast_apiRequest(array $params, string $method, string $endpoint, ?
         'http_code' => $httpCode,
         'body' => (string) $responseBody,
     ];
+}
+
+function azuracast_getBaseUrl(array $params): string
+{
+    $fromConfig = trim((string) ($params['configoption1'] ?? ''));
+    if ($fromConfig !== '') {
+        return $fromConfig;
+    }
+
+    $hostname = trim((string) ($params['serverhostname'] ?? ''));
+    $ip = trim((string) ($params['serverip'] ?? ''));
+    $secure = (string) ($params['serversecure'] ?? '') === 'on';
+
+    $host = $hostname !== '' ? $hostname : $ip;
+    if ($host === '') {
+        return '';
+    }
+
+    if (str_starts_with($host, 'http://') || str_starts_with($host, 'https://')) {
+        return rtrim($host, '/');
+    }
+
+    $scheme = $secure ? 'https://' : 'http://';
+    return $scheme . $host;
+}
+
+function azuracast_getApiKey(array $params): string
+{
+    $configApiKey = trim((string) ($params['configoption2'] ?? ''));
+    if ($configApiKey !== '') {
+        return $configApiKey;
+    }
+
+    $accessHash = trim((string) ($params['serveraccesshash'] ?? ''));
+    if ($accessHash !== '') {
+        return $accessHash;
+    }
+
+    $password = trim((string) ($params['serverpassword'] ?? ''));
+    if ($password !== '') {
+        return $password;
+    }
+
+    return '';
 }
 
 function azuracast_ensureSuccess(array $result, string $message): void

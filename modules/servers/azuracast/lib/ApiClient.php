@@ -147,6 +147,14 @@ final class ApiClient
         curl_close($ch);
 
         if (in_array($httpCode, [301, 302, 307, 308], true) && !$followRedirects) {
+            if ($maxRedirects <= 0) {
+                return [
+                    'http_code' => $httpCode,
+                    'body' => $body,
+                    'curl_error' => '',
+                ];
+            }
+
             $location = $this->extractLocationHeader($rawHeaders);
             if ($location !== '') {
                 $nextBaseUrl = $this->deriveBaseUrlFromLocation($location, $baseUrl);

@@ -33,20 +33,10 @@ function azuracastv2_ConfigOptions(): array
             'Size' => '25',
             'Description' => 'Slug/nome da estação a ser criada no AzuraCast.',
         ],
-        'Nome Público da Rádio' => [
-            'Type' => 'text',
-            'Size' => '25',
-            'Description' => 'Nome visível da rádio.',
-        ],
         'Descrição' => [
             'Type' => 'text',
             'Size' => '40',
             'Description' => 'Descrição da estação.',
-        ],
-        'Fuso Horário' => [
-            'Type' => 'text',
-            'Default' => 'America/Sao_Paulo',
-            'Description' => 'Exemplo: America/Sao_Paulo',
         ],
         'Máximo de Ouvintes' => [
             'Type' => 'text',
@@ -171,7 +161,7 @@ function azuracastv2_ClientArea(array $params): array
                 'moduleLink' => $params['modulelink'],
                 'serviceId' => $params['serviceid'],
                 'stationId' => $stationId,
-                'stationName' => $stats['name'] ?? ($params['configoption2'] ?? '-'),
+                'stationName' => $stats['name'] ?? ($params['configoption1'] ?? '-'),
                 'publicPage' => $stats['public_page_url'] ?? '#',
                 'adminPanel' => $stats['backend_url'] ?? '#',
                 'listeners' => $stats['listeners']['current'] ?? 0,
@@ -237,8 +227,8 @@ function handleProvisionAction(array $params, callable $callback, string $operat
 
 function buildClient(array $params): AzuraCastApiClient
 {
-    $host = StringHelper::normalizeBaseUrl((string) ($params['serverhostname'] ?: $params['serverip'] ?: ''));
-    $token = (string) ($params['serveraccesshash'] ?? '');
+    $host = StringHelper::normalizeBaseUrl(getServerHost($params));
+    $token = getServerApiToken($params);
 
     if ($host === '' || $token === '') {
         throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios.');
@@ -249,13 +239,78 @@ function buildClient(array $params): AzuraCastApiClient
 
 function mapStationPayload(array $params): array
 {
+    $stationName = (string) ($params['configoption1'] ?? '');
+    if ($stationName === '') {
+        $stationName = getCustomFieldValue($params, ['Nome da Estação', 'nome_da_estacao', 'station_name']);
+    }
+
+    $description = (string) ($params['configoption2'] ?? '');
+    if ($description === '') {
+        $description = getCustomFieldValue($params, ['Descrição', 'descricao', 'description']);
+    }
+
     return [
-        'name' => (string) ($params['configoption2'] ?: $params['configoption1'] ?: 'radio-' . $params['serviceid']),
-        'description' => (string) ($params['configoption3'] ?? ''),
-        'timezone' => (string) ($params['configoption4'] ?? 'America/Sao_Paulo'),
-        'max_listeners' => (int) ($params['configoption5'] ?? 100),
-        'media_storage_quota' => (int) ($params['configoption6'] ?? 1024),
-        'default_bitrate' => (int) ($params['configoption7'] ?? 128),
-        'enable_autodj' => !empty($params['configoption8']),
+        'name' => $stationName !== '' ? $stationName : 'radio-' . ($params['serviceid'] ?? '0'),
+        'description' => $description,
+        'max_listeners' => (int) ($params['configoption3'] ?? 100),
+        'media_storage_quota' => (int) ($params['configoption4'] ?? 1024),
+        'default_bitrate' => (int) ($params['configoption5'] ?? 128),
+        'enable_autodj' => !empty($params['configoption6']),
     ];
+}
+
+function getServerHost(array $params): string
+{
+    $candidates = [
+        (string) ($params['serverhostname'] ?? ''),
+        (string) ($params['serverip'] ?? ''),
+        (string) ($params['server']['hostname'] ?? ''),
+        (string) ($params['server']['ipaddress'] ?? ''),
+        (string) ($params['serverdetails']['hostname'] ?? ''),
+        (string) ($params['serverdetails']['ipaddress'] ?? ''),
+    ];
+
+    foreach ($candidates as $value) {
+        if (trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return '';
+}
+
+function getServerApiToken(array $params): string
+{
+    $candidates = [
+        (string) ($params['serveraccesshash'] ?? ''),
+        (string) ($params['serverpassword'] ?? ''),
+        (string) ($params['password'] ?? ''),
+        (string) ($params['server']['accesshash'] ?? ''),
+        (string) ($params['server']['password'] ?? ''),
+        (string) ($params['serverdetails']['accesshash'] ?? ''),
+        (string) ($params['serverdetails']['password'] ?? ''),
+    ];
+
+    foreach ($candidates as $value) {
+        if (trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return '';
+}
+
+function getCustomFieldValue(array $params, array $possibleKeys): string
+{
+    if (!isset($params['customfields']) || !is_array($params['customfields'])) {
+        return '';
+    }
+
+    foreach ($possibleKeys as $key) {
+        if (isset($params['customfields'][$key]) && trim((string) $params['customfields'][$key]) !== '') {
+            return trim((string) $params['customfields'][$key]);
+        }
+    }
+
+    return '';
 }

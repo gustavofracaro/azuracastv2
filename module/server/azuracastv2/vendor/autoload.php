@@ -11,9 +11,18 @@ spl_autoload_register(static function (string $class): void {
     }
 
     $relativeClass = substr($class, strlen($prefix));
-    $file = $baseDir . str_replace('\\', '/', $relativeClass) . '.php';
+    $relativePath = str_replace('\\', '/', $relativeClass) . '.php';
 
-    if (file_exists($file)) {
-        require $file;
+    $candidates = [
+        $baseDir . $relativePath,
+        $baseDir . preg_replace('#^Api/#', 'api/', $relativePath),
+        $baseDir . str_replace('/Api/', '/api/', $relativePath),
+    ];
+
+    foreach ($candidates as $file) {
+        if (is_string($file) && file_exists($file)) {
+            require $file;
+            return;
+        }
     }
 });

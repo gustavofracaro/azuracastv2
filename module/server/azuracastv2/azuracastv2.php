@@ -232,6 +232,7 @@ function buildClient(array $params): AzuraCastApiClient
     $token = getServerApiToken($params);
 
     if ($host === '' || $token === '') {
+        logConnectionResolutionDebug($params, $host, $token);
         throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios. Dados resolvidos: host=' . ($host !== '' ? 'ok' : 'vazio') . ', token=' . ($token !== '' ? 'ok' : 'vazio'));
     }
 
@@ -270,35 +271,45 @@ function getServerHost(array $params): string
         (string) ($params['serverip'] ?? ''),
         (string) ($params['serverusername'] ?? ''),
         (string) ($params['servername'] ?? ''),
+        (string) ($params['serverassignedips'] ?? ''),
         (string) getNestedValue($server, 'hostname'),
         (string) getNestedValue($server, 'ipaddress'),
         (string) getNestedValue($server, 'username'),
         (string) getNestedValue($server, 'name'),
+        (string) getNestedValue($server, 'assignedips'),
         (string) getNestedValue($serverDetails, 'hostname'),
         (string) getNestedValue($serverDetails, 'ipaddress'),
         (string) getNestedValue($serverDetails, 'username'),
         (string) getNestedValue($serverDetails, 'name'),
+        (string) getNestedValue($serverDetails, 'assignedips'),
     ];
 
     foreach ($candidates as $value) {
-        if (trim($value) !== '') {
-            return trim($value);
+        $resolved = normalizeHostCandidate($value);
+        if ($resolved !== '') {
+            return $resolved;
         }
     }
 
     $serverData = getServerDataFromDatabase($params);
-    foreach (['hostname', 'ipaddress', 'username', 'name'] as $field) {
-        if (isset($serverData[$field]) && trim((string) $serverData[$field]) !== '') {
-            return trim((string) $serverData[$field]);
+    foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
+        if (isset($serverData[$field])) {
+            $resolved = normalizeHostCandidate((string) $serverData[$field]);
+            if ($resolved !== '') {
+                return $resolved;
+            }
         }
     }
 
     $token = getServerApiToken($params);
     if ($token !== '') {
         $serverFromToken = getServerDataByToken($token);
-        foreach (['hostname', 'ipaddress', 'username', 'name'] as $field) {
-            if (isset($serverFromToken[$field]) && trim((string) $serverFromToken[$field]) !== '') {
-                return trim((string) $serverFromToken[$field]);
+        foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
+            if (isset($serverFromToken[$field])) {
+                $resolved = normalizeHostCandidate((string) $serverFromToken[$field]);
+                if ($resolved !== '') {
+                    return $resolved;
+                }
             }
         }
     }
@@ -406,6 +417,47 @@ function getNestedValue($source, string $path)
     }
 
     return $value;
+}
+
+function normalizeHostCandidate(string $candidate): string
+{
+    $value = trim($candidate);
+    if ($value === '') {
+        return '';
+    }
+
+    if (str_contains($value, ',')) {
+        $parts = array_filter(array_map('trim', explode(',', $value)));
+        $value = (string) reset($parts);
+    }
+
+    $value = preg_replace('#^https?://#i', '', $value) ?? $value;
+    $value = rtrim($value, '/');
+
+    if ($value === '') {
+        return '';
+    }
+
+    return $value;
+}
+
+function logConnectionResolutionDebug(array $params, string $host, string $token): void
+{
+    try {
+        $log = new LogManager(__DIR__ . '/registro.log');
+        $keys = implode(',', array_keys($params));
+        $serverId = (int) ($params['serverid'] ?? 0);
+        $message = sprintf(
+            'Debug conexão: host=%s token=%s serverid=%d keys=[%s]',
+            $host !== '' ? 'ok' : 'vazio',
+            $token !== '' ? 'ok' : 'vazio',
+            $serverId,
+            $keys
+        );
+        $log->error($message);
+    } catch (Throwable $exception) {
+        // Evita erro em cascata ao registrar debug.
+    }
 }
 
 function getCustomFieldValue(array $params, array $possibleKeys): string

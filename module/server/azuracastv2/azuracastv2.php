@@ -268,10 +268,16 @@ function getServerHost(array $params): string
     $candidates = [
         (string) ($params['serverhostname'] ?? ''),
         (string) ($params['serverip'] ?? ''),
+        (string) ($params['serverusername'] ?? ''),
+        (string) ($params['servername'] ?? ''),
         (string) getNestedValue($server, 'hostname'),
         (string) getNestedValue($server, 'ipaddress'),
+        (string) getNestedValue($server, 'username'),
+        (string) getNestedValue($server, 'name'),
         (string) getNestedValue($serverDetails, 'hostname'),
         (string) getNestedValue($serverDetails, 'ipaddress'),
+        (string) getNestedValue($serverDetails, 'username'),
+        (string) getNestedValue($serverDetails, 'name'),
     ];
 
     foreach ($candidates as $value) {
@@ -281,9 +287,19 @@ function getServerHost(array $params): string
     }
 
     $serverData = getServerDataFromDatabase($params);
-    foreach (['hostname', 'ipaddress'] as $field) {
+    foreach (['hostname', 'ipaddress', 'username', 'name'] as $field) {
         if (isset($serverData[$field]) && trim((string) $serverData[$field]) !== '') {
             return trim((string) $serverData[$field]);
+        }
+    }
+
+    $token = getServerApiToken($params);
+    if ($token !== '') {
+        $serverFromToken = getServerDataByToken($token);
+        foreach (['hostname', 'ipaddress', 'username', 'name'] as $field) {
+            if (isset($serverFromToken[$field]) && trim((string) $serverFromToken[$field]) !== '') {
+                return trim((string) $serverFromToken[$field]);
+            }
         }
     }
 
@@ -334,6 +350,28 @@ function getServerDataFromDatabase(array $params): array
 
     try {
         $record = Capsule::table('tblservers')->where('id', $serverId)->first();
+        if (!$record) {
+            return [];
+        }
+
+        return (array) $record;
+    } catch (Throwable $exception) {
+        return [];
+    }
+}
+
+function getServerDataByToken(string $token): array
+{
+    if ($token === '' || !class_exists(Capsule::class)) {
+        return [];
+    }
+
+    try {
+        $record = Capsule::table('tblservers')
+            ->where('accesshash', $token)
+            ->orWhere('password', $token)
+            ->first();
+
         if (!$record) {
             return [];
         }

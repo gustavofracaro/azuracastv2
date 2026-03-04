@@ -7,6 +7,7 @@ use AzuraCastV2\Api\StringHelper;
 use AzuraCastV2\Classes\Installer;
 use AzuraCastV2\Classes\LogManager;
 use AzuraCastV2\Classes\StationRepository;
+use WHMCS\Database\Capsule;
 
 if (!defined('WHMCS')) {
     die('Este arquivo não pode ser acessado diretamente.');
@@ -231,7 +232,7 @@ function buildClient(array $params): AzuraCastApiClient
     $token = getServerApiToken($params);
 
     if ($host === '' || $token === '') {
-        throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios.');
+        throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios. Dados resolvidos: host=' . ($host !== '' ? 'ok' : 'vazio') . ', token=' . ($token !== '' ? 'ok' : 'vazio'));
     }
 
     return new AzuraCastApiClient($host, $token, new LogManager(__DIR__ . '/registro.log'));
@@ -261,18 +262,28 @@ function mapStationPayload(array $params): array
 
 function getServerHost(array $params): string
 {
+    $server = getNestedValue($params, 'server');
+    $serverDetails = getNestedValue($params, 'serverdetails');
+
     $candidates = [
         (string) ($params['serverhostname'] ?? ''),
         (string) ($params['serverip'] ?? ''),
-        (string) ($params['server']['hostname'] ?? ''),
-        (string) ($params['server']['ipaddress'] ?? ''),
-        (string) ($params['serverdetails']['hostname'] ?? ''),
-        (string) ($params['serverdetails']['ipaddress'] ?? ''),
+        (string) getNestedValue($server, 'hostname'),
+        (string) getNestedValue($server, 'ipaddress'),
+        (string) getNestedValue($serverDetails, 'hostname'),
+        (string) getNestedValue($serverDetails, 'ipaddress'),
     ];
 
     foreach ($candidates as $value) {
         if (trim($value) !== '') {
             return trim($value);
+        }
+    }
+
+    $serverData = getServerDataFromDatabase($params);
+    foreach (['hostname', 'ipaddress'] as $field) {
+        if (isset($serverData[$field]) && trim((string) $serverData[$field]) !== '') {
+            return trim((string) $serverData[$field]);
         }
     }
 
@@ -281,14 +292,17 @@ function getServerHost(array $params): string
 
 function getServerApiToken(array $params): string
 {
+    $server = getNestedValue($params, 'server');
+    $serverDetails = getNestedValue($params, 'serverdetails');
+
     $candidates = [
         (string) ($params['serveraccesshash'] ?? ''),
         (string) ($params['serverpassword'] ?? ''),
         (string) ($params['password'] ?? ''),
-        (string) ($params['server']['accesshash'] ?? ''),
-        (string) ($params['server']['password'] ?? ''),
-        (string) ($params['serverdetails']['accesshash'] ?? ''),
-        (string) ($params['serverdetails']['password'] ?? ''),
+        (string) getNestedValue($server, 'accesshash'),
+        (string) getNestedValue($server, 'password'),
+        (string) getNestedValue($serverDetails, 'accesshash'),
+        (string) getNestedValue($serverDetails, 'password'),
     ];
 
     foreach ($candidates as $value) {
@@ -297,7 +311,63 @@ function getServerApiToken(array $params): string
         }
     }
 
+    $serverData = getServerDataFromDatabase($params);
+    foreach (['accesshash', 'password'] as $field) {
+        if (isset($serverData[$field]) && trim((string) $serverData[$field]) !== '') {
+            return trim((string) $serverData[$field]);
+        }
+    }
+
     return '';
+}
+
+function getServerDataFromDatabase(array $params): array
+{
+    $serverId = (int) ($params['serverid'] ?? 0);
+    if ($serverId <= 0) {
+        $serverId = (int) getNestedValue($params, 'server.id');
+    }
+
+    if ($serverId <= 0 || !class_exists(Capsule::class)) {
+        return [];
+    }
+
+    try {
+        $record = Capsule::table('tblservers')->where('id', $serverId)->first();
+        if (!$record) {
+            return [];
+        }
+
+        return (array) $record;
+    } catch (Throwable $exception) {
+        return [];
+    }
+}
+
+function getNestedValue($source, string $path)
+{
+    if ($path === '') {
+        return null;
+    }
+
+    $segments = explode('.', $path);
+    $value = $source;
+
+    foreach ($segments as $segment) {
+        if (is_array($value) && array_key_exists($segment, $value)) {
+            $value = $value[$segment];
+            continue;
+        }
+
+        if (is_object($value) && isset($value->{$segment})) {
+            $value = $value->{$segment};
+            continue;
+        }
+
+        return null;
+    }
+
+    return $value;
 }
 
 function getCustomFieldValue(array $params, array $possibleKeys): string

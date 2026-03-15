@@ -17,6 +17,12 @@ class StringHelper
             $trimmed = 'https://' . preg_replace('#^https?://#', '', $trimmed);
         }
 
-        return rtrim($trimmed, '/');
+        $trimmed = rtrim($trimmed, '/');
+
+        if (!preg_match('#/api$#i', $trimmed)) {
+            $trimmed .= '/api';
+        }
+
+        return $trimmed;
     }
 }

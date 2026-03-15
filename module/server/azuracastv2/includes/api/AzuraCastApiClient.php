@@ -27,7 +27,7 @@ class AzuraCastApiClient
     public function testConnection(): array
     {
         try {
-            $result = $this->request('GET', '/api/admin/stations');
+            $result = $this->request('GET', '/admin/stations');
 
             return [
                 'ok' => true,
@@ -44,27 +44,27 @@ class AzuraCastApiClient
 
     public function createStation(array $payload): array
     {
-        return $this->request('POST', '/api/admin/stations', $payload);
+        return $this->request('POST', '/admin/stations', $payload);
     }
 
     public function updateStation(int $stationId, array $payload): array
     {
-        return $this->request('PUT', '/api/admin/station/' . $stationId, $payload);
+        return $this->request('PUT', '/admin/station/' . $stationId, $payload);
     }
 
     public function deleteStation(int $stationId): array
     {
-        return $this->request('DELETE', '/api/admin/station/' . $stationId);
+        return $this->request('DELETE', '/admin/station/' . $stationId);
     }
 
     public function getStationOverview(int $stationId): array
     {
-        return $this->request('GET', '/api/station/' . $stationId . '/status');
+        return $this->request('GET', '/station/' . $stationId . '/status');
     }
 
     public function getStationPlaylists(int $stationId): array
     {
-        return $this->request('GET', '/api/station/' . $stationId . '/playlists');
+        return $this->request('GET', '/station/' . $stationId . '/playlists');
     }
 
     private function request(string $method, string $endpoint, array $payload = []): array

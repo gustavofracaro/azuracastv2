@@ -23,7 +23,7 @@ class AzuraCastApiClient
     public function testConnection(): array
     {
         try {
-            $result = $this->request('GET', '/api/frontend/account/me');
+            $result = $this->request('GET', '/api/admin/stations');
 
             return [
                 'ok' => true,
@@ -74,7 +74,9 @@ class AzuraCastApiClient
 
         $headers = [
             'Accept: application/json',
-            'Authorization: Bearer ' . $this->apiToken,
+            'Content-Type: application/json',
+            'X-API-Key: ' . $this->apiToken,
+            'X-Requested-With: XMLHttpRequest',
         ];
 
         curl_setopt_array($ch, [
@@ -84,11 +86,13 @@ class AzuraCastApiClient
             CURLOPT_TIMEOUT => 30,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_USERAGENT => 'WHMCS-AzuraCastV2-Module/1.0',
         ]);
 
         if (!empty($payload)) {
             $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
-            $headers[] = 'Content-Type: application/json';
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
         }
@@ -107,6 +111,11 @@ class AzuraCastApiClient
 
         if ($httpCode < 200 || $httpCode >= 300) {
             $msg = $decoded['message'] ?? ('HTTP ' . $httpCode . ' retornado pela API.');
+
+            if (is_string($responseBody) && stripos($responseBody, 'You must be logged in to access this page') !== false) {
+                $msg = 'API recusou a autenticação. Verifique se o Token é uma API Key válida com permissão administrativa no AzuraCast.';
+            }
+
             $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint);
             throw new RuntimeException((string) $msg);
         }

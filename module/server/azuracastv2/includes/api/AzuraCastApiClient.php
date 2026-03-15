@@ -18,7 +18,7 @@ class AzuraCastApiClient
     public function __construct(string $baseUrl, string $apiToken, LogManager $log, ?string $adminUsername = null, ?string $adminPassword = null)
     {
         $this->baseUrl = rtrim($baseUrl, '/');
-        $this->apiToken = trim($apiToken);
+        $this->apiToken = preg_replace('/\s+/', '', trim($apiToken)) ?? trim($apiToken);
         $this->log = $log;
         $this->adminUsername = $adminUsername !== null ? trim($adminUsername) : null;
         $this->adminPassword = $adminPassword !== null ? trim($adminPassword) : null;
@@ -110,10 +110,7 @@ class AzuraCastApiClient
 
         $headers = [
             'Accept: application/json',
-            'Content-Type: application/json',
-            'X-API-Key: ' . $this->apiToken,
             'Authorization: Bearer ' . $this->apiToken,
-            'X-Requested-With: XMLHttpRequest',
         ];
 
         curl_setopt_array($ch, [
@@ -141,6 +138,8 @@ class AzuraCastApiClient
                 throw new RuntimeException('Falha ao serializar payload JSON da API.');
             }
 
+            $headers[] = 'Content-Type: application/json';
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
         }
 

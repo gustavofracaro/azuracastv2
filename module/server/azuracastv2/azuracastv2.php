@@ -324,6 +324,16 @@ function getServerHost(array $params): string
         }
     }
 
+    $moduleServer = getDefaultModuleServerData();
+    foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
+        if (isset($moduleServer[$field])) {
+            $resolved = normalizeHostCandidate((string) $moduleServer[$field]);
+            if ($resolved !== '') {
+                return $resolved;
+            }
+        }
+    }
+
     return '';
 }
 
@@ -436,6 +446,28 @@ function getResolvedServerId(array $params): int
     }
 
     return 0;
+}
+
+function getDefaultModuleServerData(): array
+{
+    if (!class_exists(Capsule::class)) {
+        return [];
+    }
+
+    try {
+        $record = Capsule::table('tblservers')
+            ->where('type', 'azuracastv2')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (!$record) {
+            return [];
+        }
+
+        return (array) $record;
+    } catch (Throwable $exception) {
+        return [];
+    }
 }
 
 function getStoredServerData(array $params, string $token): array

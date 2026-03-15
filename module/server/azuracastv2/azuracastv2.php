@@ -236,6 +236,8 @@ function buildClient(array $params): AzuraCastApiClient
         throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios. Dados resolvidos: host=' . ($host !== '' ? 'ok' : 'vazio') . ', token=' . ($token !== '' ? 'ok' : 'vazio'));
     }
 
+    persistResolvedServerData($params, $host, $token);
+
     return new AzuraCastApiClient($host, $token, new LogManager(__DIR__ . '/registro.log'));
 }
 
@@ -314,6 +316,14 @@ function getServerHost(array $params): string
         }
     }
 
+    $stored = getStoredServerData($params, $token);
+    if ($stored !== []) {
+        $resolved = normalizeHostCandidate((string) ($stored['base_url'] ?? ''));
+        if ($resolved !== '') {
+            return $resolved;
+        }
+    }
+
     return '';
 }
 
@@ -345,15 +355,17 @@ function getServerApiToken(array $params): string
         }
     }
 
+    $stored = getStoredServerData($params, '');
+    if ($stored !== [] && trim((string) ($stored['api_token'] ?? '')) !== '') {
+        return trim((string) $stored['api_token']);
+    }
+
     return '';
 }
 
 function getServerDataFromDatabase(array $params): array
 {
-    $serverId = (int) ($params['serverid'] ?? 0);
-    if ($serverId <= 0) {
-        $serverId = (int) getNestedValue($params, 'server.id');
-    }
+    $serverId = getResolvedServerId($params);
 
     if ($serverId <= 0 || !class_exists(Capsule::class)) {
         return [];
@@ -368,6 +380,115 @@ function getServerDataFromDatabase(array $params): array
         return (array) $record;
     } catch (Throwable $exception) {
         return [];
+    }
+}
+
+function getResolvedServerId(array $params): int
+{
+    $serverId = (int) ($params['serverid'] ?? 0);
+    if ($serverId > 0) {
+        return $serverId;
+    }
+
+    $serverId = (int) getNestedValue($params, 'server.id');
+    if ($serverId > 0) {
+        return $serverId;
+    }
+
+    if (!class_exists(Capsule::class)) {
+        return 0;
+    }
+
+    $serviceId = (int) ($params['serviceid'] ?? 0);
+    $packageId = (int) ($params['packageid'] ?? 0);
+
+    try {
+        if ($serviceId > 0) {
+            $hosting = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+            if ($hosting) {
+                $hostingArray = (array) $hosting;
+                $serverId = (int) ($hostingArray['server'] ?? 0);
+                if ($serverId > 0) {
+                    return $serverId;
+                }
+                if ($packageId <= 0) {
+                    $packageId = (int) ($hostingArray['packageid'] ?? 0);
+                }
+            }
+        }
+
+        if ($packageId > 0) {
+            $product = Capsule::table('tblproducts')->where('id', $packageId)->first();
+            if ($product) {
+                $productArray = (array) $product;
+                $serverId = (int) ($productArray['servergroup'] ?? 0);
+                if ($serverId > 0) {
+                    $rel = Capsule::table('tblservergroupsrel')->where('groupid', $serverId)->orderBy('id', 'asc')->first();
+                    if ($rel) {
+                        $relArray = (array) $rel;
+                        return (int) ($relArray['serverid'] ?? 0);
+                    }
+                }
+            }
+        }
+    } catch (Throwable $exception) {
+        return 0;
+    }
+
+    return 0;
+}
+
+function getStoredServerData(array $params, string $token): array
+{
+    if (!class_exists(Capsule::class)) {
+        return [];
+    }
+
+    try {
+        $serverId = getResolvedServerId($params);
+        if ($serverId > 0) {
+            $record = Capsule::table('azuracastv2_servers')->where('server_id', $serverId)->first();
+            if ($record) {
+                return (array) $record;
+            }
+        }
+
+        if ($token !== '') {
+            $record = Capsule::table('azuracastv2_servers')->where('api_token', $token)->first();
+            if ($record) {
+                return (array) $record;
+            }
+        }
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    return [];
+}
+
+function persistResolvedServerData(array $params, string $host, string $token): void
+{
+    if (!class_exists(Capsule::class)) {
+        return;
+    }
+
+    $serverId = getResolvedServerId($params);
+    if ($serverId <= 0) {
+        return;
+    }
+
+    try {
+        Capsule::table('azuracastv2_servers')->updateOrInsert(
+            ['server_id' => $serverId],
+            [
+                'base_url' => StringHelper::normalizeBaseUrl($host),
+                'api_token' => $token,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'created_at' => date('Y-m-d H:i:s'),
+            ]
+        );
+    } catch (Throwable $exception) {
+        // Sem ação: não interrompe provisionamento por falha de cache local.
     }
 }
 

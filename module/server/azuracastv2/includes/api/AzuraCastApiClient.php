@@ -69,6 +69,38 @@ class AzuraCastApiClient
 
     private function request(string $method, string $endpoint, array $payload = []): array
     {
+        $response = $this->performRequest($method, $endpoint, $payload, false);
+
+        if ($this->isAuthenticationFailure($response['httpCode'], $response['body']) && $this->hasAdminCredentials()) {
+            $this->log->error('Autenticação por token falhou, tentando fallback com usuário/senha admin. endpoint=' . $endpoint);
+            $response = $this->performRequest($method, $endpoint, $payload, true);
+        }
+
+        $decoded = json_decode($response['body'], true);
+
+        if ($response['httpCode'] < 200 || $response['httpCode'] >= 300) {
+            $msg = is_array($decoded) ? ($decoded['message'] ?? null) : null;
+            if (!is_string($msg) || trim($msg) === '') {
+                $msg = 'HTTP ' . $response['httpCode'] . ' retornado pela API.';
+            }
+
+            if ($this->isAuthenticationFailure($response['httpCode'], $response['body'])) {
+                $msg = 'API recusou a autenticação. Verifique Token API e, se necessário, usuário/senha administrativos do servidor no WHMCS.';
+            }
+
+            $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint);
+            throw new RuntimeException((string) $msg);
+        }
+
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Resposta da API em formato inválido.');
+        }
+
+        return $decoded;
+    }
+
+    private function performRequest(string $method, string $endpoint, array $payload, bool $useBasicAuth): array
+    {
         $url = $this->baseUrl . $endpoint;
         $ch = curl_init($url);
 
@@ -94,16 +126,21 @@ class AzuraCastApiClient
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS => 3,
             CURLOPT_USERAGENT => 'WHMCS-AzuraCastV2-Module/1.0',
+            CURLOPT_HEADER => false,
         ]);
 
-        if (!empty($this->adminUsername) && !empty($this->adminPassword)) {
+        if ($useBasicAuth && $this->hasAdminCredentials()) {
             curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            curl_setopt($ch, CURLOPT_USERPWD, $this->adminUsername . ':' . $this->adminPassword);
+            curl_setopt($ch, CURLOPT_USERPWD, (string) $this->adminUsername . ':' . (string) $this->adminPassword);
         }
 
         if (!empty($payload)) {
             $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            if (!is_string($json)) {
+                curl_close($ch);
+                throw new RuntimeException('Falha ao serializar payload JSON da API.');
+            }
+
             curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
         }
 
@@ -113,27 +150,29 @@ class AzuraCastApiClient
         curl_close($ch);
 
         if ($responseBody === false || $error !== '') {
-            $this->log->error('Erro de conexão API: ' . $error);
+            $this->log->error('Erro de conexão API: ' . $error . ' | endpoint=' . $endpoint);
             throw new RuntimeException('Erro de conexão com API: ' . $error);
         }
 
-        $decoded = json_decode($responseBody, true);
+        return [
+            'httpCode' => $httpCode,
+            'body' => (string) $responseBody,
+        ];
+    }
 
-        if ($httpCode < 200 || $httpCode >= 300) {
-            $msg = $decoded['message'] ?? ('HTTP ' . $httpCode . ' retornado pela API.');
+    private function hasAdminCredentials(): bool
+    {
+        return !empty($this->adminUsername) && !empty($this->adminPassword);
+    }
 
-            if (is_string($responseBody) && stripos($responseBody, 'You must be logged in to access this page') !== false) {
-                $msg = 'API recusou a autenticação. Verifique Token API e, se necessário, usuário/senha administrativos do servidor no WHMCS.';
-            }
-
-            $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint);
-            throw new RuntimeException((string) $msg);
+    private function isAuthenticationFailure(int $httpCode, string $body): bool
+    {
+        if (in_array($httpCode, [401, 403], true)) {
+            return true;
         }
 
-        if (!is_array($decoded)) {
-            throw new RuntimeException('Resposta da API em formato inválido.');
-        }
-
-        return $decoded;
+        return stripos($body, 'You must be logged in to access this page') !== false
+            || stripos($body, 'Access Denied') !== false
+            || stripos($body, 'Invalid API key') !== false;
     }
 }

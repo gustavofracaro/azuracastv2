@@ -12,12 +12,16 @@ class AzuraCastApiClient
     private string $baseUrl;
     private string $apiToken;
     private LogManager $log;
+    private ?string $adminUsername;
+    private ?string $adminPassword;
 
-    public function __construct(string $baseUrl, string $apiToken, LogManager $log)
+    public function __construct(string $baseUrl, string $apiToken, LogManager $log, ?string $adminUsername = null, ?string $adminPassword = null)
     {
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->apiToken = trim($apiToken);
         $this->log = $log;
+        $this->adminUsername = $adminUsername !== null ? trim($adminUsername) : null;
+        $this->adminPassword = $adminPassword !== null ? trim($adminPassword) : null;
     }
 
     public function testConnection(): array
@@ -76,6 +80,7 @@ class AzuraCastApiClient
             'Accept: application/json',
             'Content-Type: application/json',
             'X-API-Key: ' . $this->apiToken,
+            'Authorization: Bearer ' . $this->apiToken,
             'X-Requested-With: XMLHttpRequest',
         ];
 
@@ -90,6 +95,11 @@ class AzuraCastApiClient
             CURLOPT_MAXREDIRS => 3,
             CURLOPT_USERAGENT => 'WHMCS-AzuraCastV2-Module/1.0',
         ]);
+
+        if (!empty($this->adminUsername) && !empty($this->adminPassword)) {
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->adminUsername . ':' . $this->adminPassword);
+        }
 
         if (!empty($payload)) {
             $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
@@ -113,7 +123,7 @@ class AzuraCastApiClient
             $msg = $decoded['message'] ?? ('HTTP ' . $httpCode . ' retornado pela API.');
 
             if (is_string($responseBody) && stripos($responseBody, 'You must be logged in to access this page') !== false) {
-                $msg = 'API recusou a autenticação. Verifique se o Token é uma API Key válida com permissão administrativa no AzuraCast.';
+                $msg = 'API recusou a autenticação. Verifique Token API e, se necessário, usuário/senha administrativos do servidor no WHMCS.';
             }
 
             $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint);

@@ -236,9 +236,17 @@ function buildClient(array $params): AzuraCastApiClient
         throw new RuntimeException('Hostname/IP e Token API Key são obrigatórios. Dados resolvidos: host=' . ($host !== '' ? 'ok' : 'vazio') . ', token=' . ($token !== '' ? 'ok' : 'vazio'));
     }
 
+    $adminCredentials = sanitizeAdminCredentials(getServerAdminCredentials($params), $host, $token);
+
     persistResolvedServerData($params, $host, $token);
 
-    return new AzuraCastApiClient($host, $token, new LogManager(__DIR__ . '/registro.log'));
+    return new AzuraCastApiClient(
+        $host,
+        $token,
+        new LogManager(__DIR__ . '/registro.log'),
+        $adminCredentials['username'] ?: null,
+        $adminCredentials['password'] ?: null
+    );
 }
 
 function mapStationPayload(array $params): array
@@ -371,6 +379,80 @@ function getServerApiToken(array $params): string
     }
 
     return '';
+}
+
+function sanitizeAdminCredentials(array $credentials, string $host, string $token): array
+{
+    $username = trim((string) ($credentials['username'] ?? ''));
+    $password = trim((string) ($credentials['password'] ?? ''));
+
+    if ($password !== '' && hash_equals($password, $token)) {
+        $password = '';
+    }
+
+    $normalizedHost = normalizeHostCandidate($host);
+    $normalizedUserAsHost = normalizeHostCandidate($username);
+    if ($username !== '' && $normalizedHost !== '' && $normalizedUserAsHost === $normalizedHost) {
+        $username = '';
+        $password = '';
+    }
+
+    return [
+        'username' => $username,
+        'password' => $password,
+    ];
+}
+
+function getServerAdminCredentials(array $params): array
+{
+    $server = getNestedValue($params, 'server');
+    $serverDetails = getNestedValue($params, 'serverdetails');
+
+    $usernameCandidates = [
+        (string) ($params['serverusername'] ?? ''),
+        (string) ($params['username'] ?? ''),
+        (string) getNestedValue($server, 'username'),
+        (string) getNestedValue($serverDetails, 'username'),
+    ];
+
+    $passwordCandidates = [
+        (string) ($params['serverpassword'] ?? ''),
+        (string) getNestedValue($server, 'password'),
+        (string) getNestedValue($serverDetails, 'password'),
+    ];
+
+    $serverData = getServerDataFromDatabase($params);
+    if ($serverData !== []) {
+        $usernameCandidates[] = (string) ($serverData['username'] ?? '');
+        $passwordCandidates[] = (string) ($serverData['password'] ?? '');
+    }
+
+    $defaultServer = getDefaultModuleServerData();
+    if ($defaultServer !== []) {
+        $usernameCandidates[] = (string) ($defaultServer['username'] ?? '');
+        $passwordCandidates[] = (string) ($defaultServer['password'] ?? '');
+    }
+
+    $username = '';
+    foreach ($usernameCandidates as $value) {
+        if (trim($value) !== '') {
+            $username = trim($value);
+            break;
+        }
+    }
+
+    $password = '';
+    foreach ($passwordCandidates as $value) {
+        if (trim($value) !== '') {
+            $password = trim($value);
+            break;
+        }
+    }
+
+    return [
+        'username' => $username,
+        'password' => $password,
+    ];
 }
 
 function getServerDataFromDatabase(array $params): array

@@ -69,11 +69,16 @@ class AzuraCastApiClient
 
     private function request(string $method, string $endpoint, array $payload = []): array
     {
-        $response = $this->performRequest($method, $endpoint, $payload, false);
+        $response = $this->performRequest($method, $endpoint, $payload, 'token');
 
         if ($this->isAuthenticationFailure($response['httpCode'], $response['body']) && $this->hasAdminCredentials()) {
-            $this->log->error('Autenticação por token falhou, tentando fallback com usuário/senha admin. endpoint=' . $endpoint);
-            $response = $this->performRequest($method, $endpoint, $payload, true);
+            $this->log->error('Autenticação por token falhou, tentando fallback token+basic auth. endpoint=' . $endpoint);
+            $response = $this->performRequest($method, $endpoint, $payload, 'token_basic');
+        }
+
+        if ($this->isAuthenticationFailure($response['httpCode'], $response['body']) && $this->hasAdminCredentials()) {
+            $this->log->error('Token+basic falhou, tentando fallback basic auth puro. endpoint=' . $endpoint);
+            $response = $this->performRequest($method, $endpoint, $payload, 'basic');
         }
 
         $decoded = json_decode($response['body'], true);
@@ -84,11 +89,12 @@ class AzuraCastApiClient
                 $msg = 'HTTP ' . $response['httpCode'] . ' retornado pela API.';
             }
 
-            if ($this->isAuthenticationFailure($response['httpCode'], $response['body'])) {
+            if ($this->isStrongAuthenticationFailure($response['body'])) {
                 $msg = 'API recusou a autenticação. Verifique Token API e, se necessário, usuário/senha administrativos do servidor no WHMCS.';
             }
 
-            $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint);
+            $bodySnippet = substr(trim($response['body']), 0, 250);
+            $this->log->error('Resposta inválida API: ' . $msg . ' | endpoint=' . $endpoint . ' | http=' . $response['httpCode'] . ' | body=' . $bodySnippet);
             throw new RuntimeException((string) $msg);
         }
 
@@ -99,7 +105,7 @@ class AzuraCastApiClient
         return $decoded;
     }
 
-    private function performRequest(string $method, string $endpoint, array $payload, bool $useBasicAuth): array
+    private function performRequest(string $method, string $endpoint, array $payload, string $authMode): array
     {
         $url = $this->baseUrl . $endpoint;
         $ch = curl_init($url);
@@ -110,8 +116,11 @@ class AzuraCastApiClient
 
         $headers = [
             'Accept: application/json',
-            'Authorization: Bearer ' . $this->apiToken,
         ];
+
+        if (in_array($authMode, ['token', 'token_basic'], true)) {
+            $headers[] = 'Authorization: Bearer ' . $this->apiToken;
+        }
 
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -126,7 +135,7 @@ class AzuraCastApiClient
             CURLOPT_HEADER => false,
         ]);
 
-        if ($useBasicAuth && $this->hasAdminCredentials()) {
+        if (in_array($authMode, ['token_basic', 'basic'], true) && $this->hasAdminCredentials()) {
             curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
             curl_setopt($ch, CURLOPT_USERPWD, (string) $this->adminUsername . ':' . (string) $this->adminPassword);
         }
@@ -170,8 +179,16 @@ class AzuraCastApiClient
             return true;
         }
 
-        return stripos($body, 'You must be logged in to access this page') !== false
-            || stripos($body, 'Access Denied') !== false
-            || stripos($body, 'Invalid API key') !== false;
+        return $this->isStrongAuthenticationFailure($body);
+    }
+
+    private function isStrongAuthenticationFailure(string $body): bool
+    {
+        $bodyLower = strtolower($body);
+
+        return str_contains($bodyLower, 'you must be logged in to access this page')
+            || str_contains($bodyLower, 'invalid api key')
+            || str_contains($bodyLower, 'invalid credentials')
+            || str_contains($bodyLower, 'authentication required');
     }
 }

@@ -279,18 +279,12 @@ function getServerHost(array $params): string
     $candidates = [
         (string) ($params['serverhostname'] ?? ''),
         (string) ($params['serverip'] ?? ''),
-        (string) ($params['serverusername'] ?? ''),
-        (string) ($params['servername'] ?? ''),
         (string) ($params['serverassignedips'] ?? ''),
         (string) getNestedValue($server, 'hostname'),
         (string) getNestedValue($server, 'ipaddress'),
-        (string) getNestedValue($server, 'username'),
-        (string) getNestedValue($server, 'name'),
         (string) getNestedValue($server, 'assignedips'),
         (string) getNestedValue($serverDetails, 'hostname'),
         (string) getNestedValue($serverDetails, 'ipaddress'),
-        (string) getNestedValue($serverDetails, 'username'),
-        (string) getNestedValue($serverDetails, 'name'),
         (string) getNestedValue($serverDetails, 'assignedips'),
     ];
 
@@ -302,7 +296,7 @@ function getServerHost(array $params): string
     }
 
     $serverData = getServerDataFromDatabase($params);
-    foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
+    foreach (['hostname', 'ipaddress', 'assignedips'] as $field) {
         if (isset($serverData[$field])) {
             $resolved = normalizeHostCandidate((string) $serverData[$field]);
             if ($resolved !== '') {
@@ -314,7 +308,7 @@ function getServerHost(array $params): string
     $token = getServerApiToken($params);
     if ($token !== '') {
         $serverFromToken = getServerDataByToken($token);
-        foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
+        foreach (['hostname', 'ipaddress', 'assignedips'] as $field) {
             if (isset($serverFromToken[$field])) {
                 $resolved = normalizeHostCandidate((string) $serverFromToken[$field]);
                 if ($resolved !== '') {
@@ -329,16 +323,6 @@ function getServerHost(array $params): string
         $resolved = normalizeHostCandidate((string) ($stored['base_url'] ?? ''));
         if ($resolved !== '') {
             return $resolved;
-        }
-    }
-
-    $moduleServer = getDefaultModuleServerData();
-    foreach (['hostname', 'ipaddress', 'username', 'name', 'assignedips'] as $field) {
-        if (isset($moduleServer[$field])) {
-            $resolved = normalizeHostCandidate((string) $moduleServer[$field]);
-            if ($resolved !== '') {
-                return $resolved;
-            }
         }
     }
 
@@ -421,11 +405,6 @@ function getServerAdminCredentials(array $params): array
         $passwordCandidates[] = (string) ($serverData['password'] ?? '');
     }
 
-    $defaultServer = getDefaultModuleServerData();
-    if ($defaultServer !== []) {
-        $usernameCandidates[] = (string) ($defaultServer['username'] ?? '');
-        $passwordCandidates[] = (string) ($defaultServer['password'] ?? '');
-    }
 
     $username = '';
     foreach ($usernameCandidates as $value) {
@@ -524,27 +503,6 @@ function getResolvedServerId(array $params): int
     return 0;
 }
 
-function getDefaultModuleServerData(): array
-{
-    if (!class_exists(Capsule::class)) {
-        return [];
-    }
-
-    try {
-        $record = Capsule::table('tblservers')
-            ->where('type', 'azuracastv2')
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if (!$record) {
-            return [];
-        }
-
-        return (array) $record;
-    } catch (Throwable $exception) {
-        return [];
-    }
-}
 
 function getStoredServerData(array $params, string $token): array
 {

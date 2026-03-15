@@ -352,12 +352,8 @@ function getServerApiToken(array $params): string
 
     $candidates = [
         (string) ($params['serveraccesshash'] ?? ''),
-        (string) ($params['serverpassword'] ?? ''),
-        (string) ($params['password'] ?? ''),
         (string) getNestedValue($server, 'accesshash'),
-        (string) getNestedValue($server, 'password'),
         (string) getNestedValue($serverDetails, 'accesshash'),
-        (string) getNestedValue($serverDetails, 'password'),
     ];
 
     foreach ($candidates as $value) {
@@ -367,10 +363,8 @@ function getServerApiToken(array $params): string
     }
 
     $serverData = getServerDataFromDatabase($params);
-    foreach (['accesshash', 'password'] as $field) {
-        if (isset($serverData[$field]) && trim((string) $serverData[$field]) !== '') {
-            return trim((string) $serverData[$field]);
-        }
+    if (isset($serverData['accesshash']) && trim((string) $serverData['accesshash']) !== '') {
+        return trim((string) $serverData['accesshash']);
     }
 
     $stored = getStoredServerData($params, '');
